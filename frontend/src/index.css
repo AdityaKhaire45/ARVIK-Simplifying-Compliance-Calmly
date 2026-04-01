@@ -1,0 +1,211 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap');
+
+:root {
+  /* ARVIK Color Palette */
+  --primary: #3DBFC1;
+  --primary-deep: #2FA3A0;
+  --primary-muted: #6FAEA4;
+  --bg-main: #F4F7F8;
+  --bg-accent: #8FBCC3;
+  --highlight: #B7C06E;
+  
+  /* UI Elements */
+  --card-bg: rgba(255, 255, 255, 0.7);
+  --card-border: rgba(143, 188, 195, 0.2);
+  --text-main: #2D3E40;
+  --text-muted: #627A7D;
+  --sidebar-bg: rgba(255, 255, 255, 0.85);
+  
+  /* Status Colors */
+  --success: #3DBFC1;
+  --warning: #B7C06E;
+  --danger: #E68A8A;
+  
+  /* Shadows */
+  --shadow-soft: 0 8px 30px rgba(0, 0, 0, 0.04);
+  --shadow-medium: 0 20px 60px rgba(47, 163, 160, 0.15);
+  
+  /* Radius */
+  --radius-lg: 24px;
+  --radius-md: 16px;
+  
+  --sidebar-w: 260px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', sans-serif;
+}
+
+/* Ambient Pulse Mesh Background */
+body {
+  background: var(--bg-main);
+  background-attachment: fixed;
+  color: var(--text-main);
+  line-height: 1.6;
+  overflow-x: hidden;
+  min-height: 100vh;
+  position: relative;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: 
+    radial-gradient(circle at 15% 15%, #3DBFC115 0, transparent 40%),
+    radial-gradient(circle at 85% 15%, #B7C06E15 0, transparent 40%),
+    radial-gradient(circle at 15% 85%, #8FBCC315 0, transparent 40%),
+    radial-gradient(circle at 85% 85%, #2FA3A015 0, transparent 40%);
+  filter: blur(80px);
+  z-index: -2;
+  animation: move-gradient 30s ease-in-out infinite alternate;
+}
+
+@keyframes move-gradient {
+  0% { transform: rotate(0deg) scale(1); }
+  100% { transform: rotate(10deg) scale(1.1); }
+}
+
+h1, h2, h3, h4 {
+  font-family: 'Outfit', sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Glassmorphism */
+.glass {
+  background: var(--card-bg);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--card-border);
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  padding: 30px;
+  box-shadow: var(--shadow-soft);
+  transition: all 0.5s cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+.card:hover {
+  transform: translateY(-10px);
+  box-shadow: var(--shadow-medium);
+  border-color: var(--primary);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bg-accent);
+  border-radius: 10px;
+  opacity: 0.5;
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 28px;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.4s cubic-bezier(0.19, 1, 0.22, 1);
+  border: 1px solid transparent;
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-deep) 100%);
+  color: white;
+  box-shadow: 0 10px 20px rgba(61, 191, 193, 0.2);
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 15px 30px rgba(61, 191, 193, 0.3);
+}
+
+.btn-ghost {
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--text-main);
+  border: 1px solid var(--card-border);
+}
+
+.btn-ghost:hover {
+  background: white;
+  border-color: var(--primary);
+  transform: translateY(-2px);
+}
+
+/* Layout */
+.app-container {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: var(--sidebar-w);
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--card-border);
+  position: fixed;
+  height: 100vh;
+  padding: 40px 24px;
+  z-index: 100;
+  backdrop-filter: blur(24px);
+}
+
+.main-content {
+  flex: 1;
+  margin-left: var(--sidebar-w);
+  min-height: 100vh;
+}
+
+/* Animations */
+.fade-in {
+  animation: fadeIn 1s cubic-bezier(0.19, 1, 0.22, 1) forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.shortcut-hint {
+  font-size: 0.75rem;
+  padding: 3px 8px;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+  color: var(--text-muted);
+  margin-left: 10px;
+  font-family: monospace;
+  font-weight: 700;
+}
+
+/* Form Styles */
+input, select {
+  transition: all 0.4s cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+input:focus, select:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 5px rgba(61, 191, 193, 0.1);
+  background: white !important;
+}
