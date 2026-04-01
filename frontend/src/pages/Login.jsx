@@ -191,4 +191,21 @@ const Login = () => {
             style={{ marginTop: '12px', height: '54px', display: 'flex', justifyContent: 'center', gap: '12px', fontSize: '1rem' }}
           >
             {loading ? <Loader2 className="animate-spin" /> : (
-          
+              <>
+                {isLogin ? 'Establish Secure Portal' : 'Launch Workspace'}
+                <ArrowRight size={18} />
+              </>
+            )}
+          </button>
+        </form>
+
+        <div style={{ marginTop: '32px', textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
+          By establishing a connection, you agree to ARVIK's <br/> 
+          <span style={{ color: 'var(--primary)', fontWeight: 600, cursor: 'pointer' }}>Security & Sovereignty Protocol</span>.
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
+export default Login;
