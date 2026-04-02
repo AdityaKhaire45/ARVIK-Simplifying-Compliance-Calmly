@@ -8,18 +8,33 @@ import {
   set
 } from '../firebase';
 import { motion } from 'framer-motion';
-import { Mail, Lock, User as UserIcon, Shield, Loader2, ArrowRight } from 'lucide-react';
+import { Mail, Lock, User as UserIcon, Shield, Loader2, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const Login = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState('');
   const [role, setRole] = useState('client');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
+
+  const mobileStyle = `
+    @media (max-width: 480px) {
+      .login-card {
+        padding: 24px !important;
+        margin: 10px !important;
+        border-radius: 20px !important;
+      }
+      .login-header h1 {
+        font-size: 1.5rem !important;
+      }
+    }
+  `;
 
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -31,6 +46,11 @@ const Login = () => {
         await signInWithEmailAndPassword(auth, email, password);
         navigate('/');
       } else {
+        if (password !== confirmPassword) {
+          setError("Secruity error: Passwords do not match.");
+          setLoading(false);
+          return;
+        }
         const userCred = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCred.user;
         
@@ -52,7 +72,7 @@ const Login = () => {
   };
 
   const LogoSection = () => (
-    <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+    <div className="login-header" style={{ textAlign: 'center', marginBottom: '32px' }}>
       <motion.div 
         initial={{ scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
@@ -90,45 +110,63 @@ const Login = () => {
       display: 'grid', 
       placeItems: 'center',
       background: 'radial-gradient(circle at bottom left, var(--bg-accent) 0%, var(--bg-main) 50%)',
-      padding: '20px'
+      padding: '16px'
     }}>
+      <style>{mobileStyle}</style>
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="card glass" 
-        style={{ width: '100%', maxWidth: '420px', padding: '40px' }}
+        className="card glass login-card" 
+        style={{ 
+          width: '100%', 
+          maxWidth: '440px', 
+          padding: '40px',
+          margin: '0 auto',
+          position: 'relative',
+          overflow: 'hidden'
+        }}
       >
         <LogoSection />
 
-        <div style={{ display: 'flex', gap: '20px', marginBottom: '32px', borderBottom: '1px solid var(--card-border)' }}>
+        <div style={{ 
+          display: 'flex', 
+          gap: '12px', 
+          marginBottom: '32px', 
+          borderBottom: '1px solid var(--card-border)',
+          padding: '0 4px'
+        }}>
           <button 
-            onClick={() => setIsLogin(true)}
+            type="button"
+            onClick={() => { setIsLogin(true); setError(''); }}
             style={{ 
               padding: '12px 4px', 
-              fontSize: '0.85rem', 
+              fontSize: '0.8rem', 
               fontWeight: 700,
               background: 'transparent',
               border: 'none',
               color: isLogin ? 'var(--primary)' : 'var(--text-muted)',
               borderBottom: `2.5px solid ${isLogin ? 'var(--primary)' : 'transparent'}`,
               cursor: 'pointer',
-              flex: 1
+              flex: 1,
+              transition: 'all 0.3s ease'
             }}
           >
             Access Portal
           </button>
           <button 
-            onClick={() => setIsLogin(false)}
+            type="button"
+            onClick={() => { setIsLogin(false); setError(''); }}
             style={{ 
               padding: '12px 4px', 
-              fontSize: '0.85rem', 
+              fontSize: '0.8rem', 
               fontWeight: 700,
               background: 'transparent',
               border: 'none',
               color: !isLogin ? 'var(--primary)' : 'var(--text-muted)',
               borderBottom: `2.5px solid ${!isLogin ? 'var(--primary)' : 'transparent'}`,
               cursor: 'pointer',
-              flex: 1
+              flex: 1,
+              transition: 'all 0.3s ease'
             }}
           >
             Create Account
@@ -176,12 +214,32 @@ const Login = () => {
             <Lock size={18} style={{ position: 'absolute', left: '14px', top: '14px', color: 'var(--text-muted)' }} />
             <input 
               required
-              type="password"
-              style={{ width: '100%', padding: '14px 14px 14px 44px', background: 'white', border: '1px solid var(--card-border)', borderRadius: '14px', outline: 'none' }}
-              placeholder="Security Password"
+              type={showPassword ? "text" : "password"}
+              style={{ width: '100%', padding: '14px 44px 14px 44px', background: 'white', border: '1px solid var(--card-border)', borderRadius: '14px', outline: 'none' }}
+              placeholder={isLogin ? "Security Password" : "Create Password"}
               value={password} onChange={e => setPassword(e.target.value)}
             />
+            <button 
+              type="button" 
+              onClick={() => setShowPassword(!showPassword)}
+              style={{ position: 'absolute', right: '14px', top: '14px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+            >
+              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
           </div>
+
+          {!isLogin && (
+            <div style={{ position: 'relative' }}>
+              <Lock size={18} style={{ position: 'absolute', left: '14px', top: '14px', color: 'var(--text-muted)' }} />
+              <input 
+                required
+                type={showPassword ? "text" : "password"}
+                style={{ width: '100%', padding: '14px 44px 14px 44px', background: 'white', border: '1px solid var(--card-border)', borderRadius: '14px', outline: 'none' }}
+                placeholder="Confirm Password"
+                value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
+              />
+            </div>
+          )}
 
           {error && <div style={{ color: 'var(--danger)', fontSize: '0.8rem', textAlign: 'center', background: 'rgba(230,138,138,0.1)', padding: '10px', borderRadius: '10px', border: '1px solid rgba(230,138,138,0.2)' }}>{error}</div>}
 
