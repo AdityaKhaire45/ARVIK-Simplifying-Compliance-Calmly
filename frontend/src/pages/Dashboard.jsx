@@ -1,232 +1,187 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react'
+import { motion } from 'framer-motion'
+import { db, ref, onValue, push, set } from '../firebase'
 import { 
-  Users, 
-  ClipboardList, 
-  ShieldCheck, 
-  Bell, 
-  PlusCircle, 
-  PieChart, 
-  TrendingUp, 
-  Calendar,
-  AlertTriangle,
-  History,
-  ArrowUpRight,
-  Monitor,
-  MousePointer2,
-  Filter
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { db, ref, onValue } from '../firebase';
-import { useNavigate } from 'react-router-dom';
+  Users, ShieldCheck, FileCheck, AlertTriangle, TrendingUp, 
+  Clock, CheckCircle, XCircle, BarChart3, Bell, UserPlus, ArrowRight
+} from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
-const Dashboard = ({ role }) => {
-  const navigate = useNavigate();
-  const [stats, setStats] = useState([
-    { label: 'Managed Entities', value: '0', icon: <Users size={18} />, color: 'var(--primary)', path: '/clients', trend: '+12%' },
-    { label: 'Active Filings', value: '0', icon: <ClipboardList size={18} />, color: 'var(--primary-deep)', path: '/compliances', trend: 'Live' },
-    { label: 'Partner Network', value: '0', icon: <ShieldCheck size={18} />, color: 'var(--highlight)', path: '/cas', trend: 'Global' },
-    { label: 'System Health', value: '99.8%', icon: <PieChart size={18} />, color: 'var(--primary-muted)', path: '/', trend: 'Stable' }
-  ]);
-  const [pipeline, setPipeline] = useState([]);
+const Dashboard = ({ role, user }) => {
+  const [clients, setClients] = useState([])
+  const [cas, setCas] = useState([])
+  const [documents, setDocuments] = useState([])
+  const [alerts, setAlerts] = useState([])
+  const navigate = useNavigate()
 
   useEffect(() => {
-    const clientsRef = ref(db, "clients");
-    const caRef = ref(db, "cas");
-    
-    onValue(caRef, (snap) => {
-      const caCount = snap.val() ? Object.keys(snap.val()).length : 0;
-      setStats(prev => {
-        const next = [...prev];
-        next[2].value = caCount.toString();
-        return next;
-      });
-    });
-
-    onValue(clientsRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const clients = Object.entries(data).map(([id, val]) => ({ id, ...val }));
-        setStats(prev => {
-           const next = [...prev];
-           next[0].value = clients.length.toString();
-           next[1].value = clients.reduce((acc, c) => acc + (c.compliances?.length || 0), 0).toString();
-           return next;
-        });
-
-        const tasks = [];
-        clients.forEach(c => {
-          (c.compliances || []).forEach(name => {
-            tasks.push({
-              clientName: c.name,
-              complianceName: typeof name === 'string' ? name : name.name,
-              dueDay: 20 
-            });
-          });
-        });
-        setPipeline(tasks.slice(-5).reverse());
+    // Clients
+    onValue(ref(db, 'clients'), snap => {
+      const d = snap.val()
+      setClients(d ? Object.entries(d).map(([id, v]) => ({ id, ...v })) : [])
+    })
+    // CAs — from users with role=ca
+    onValue(ref(db, 'users'), snap => {
+      const d = snap.val()
+      if (d) {
+        const caList = Object.entries(d).filter(([_, v]) => v.role === 'ca').map(([id, v]) => ({ uid: id, ...v }))
+        setCas(caList)
       }
-    });
-  }, []);
+    })
+    // Documents
+    onValue(ref(db, 'documents'), snap => {
+      const d = snap.val()
+      setDocuments(d ? Object.entries(d).map(([id, v]) => ({ id, ...v })) : [])
+    })
+    // Alerts
+    onValue(ref(db, 'alerts'), snap => {
+      const d = snap.val()
+      setAlerts(d ? Object.entries(d).map(([id, v]) => ({ id, ...v })) : [])
+    })
+  }, [])
+
+  const totalClients = clients.length
+  const assignedClients = clients.filter(c => c.assigned_ca_uid).length
+  const pendingDocs = documents.filter(d => d.status === 'pending').length
+  const approvedDocs = documents.filter(d => d.status === 'approved').length
+  const unreadAlerts = alerts.filter(a => !a.read).length
+
+  // CA Performance Data
+  const caPerformance = cas.map(ca => {
+    const myClients = clients.filter(c => c.assigned_ca_uid === ca.uid)
+    const myDocs = documents.filter(d => myClients.some(c => c.id === d.client_uid))
+    const pending = myDocs.filter(d => d.status === 'pending').length
+    const approved = myDocs.filter(d => d.status === 'approved').length
+    const hasUrgent = alerts.some(a => a.target_uid === ca.uid && !a.read)
+    return { ...ca, clientCount: myClients.length, pending, approved, hasUrgent }
+  })
 
   return (
     <div style={{ maxWidth: '1400px' }}>
-      {/* 1. Dynamic Welcome Header */}
-      <header style={{ marginBottom: '40px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-        <div>
-          <h1 style={{ fontSize: '2.8rem', marginBottom: '8px', fontWeight: 600, letterSpacing: '-0.02em' }}>
-            {role === 'admin' ? 'Administrative Control' : 'Advisor Workspace'}
-          </h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem' }}>
-            System Integrity: <span style={{ color: 'var(--primary)', fontWeight: 600 }}>Optimal</span> | Connected to Secure Instance
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn btn-ghost"><Filter size={18} /> Configure View</button>
-          <button className="btn btn-primary" onClick={() => navigate('/clients')}><PlusCircle size={18} /> New Engagement</button>
-        </div>
-      </header>
-
-      {/* 2. Enhanced Summary Cards */}
-      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px', marginBottom: '40px' }}>
-        {stats.map((s, i) => (
-          <motion.div 
-            key={i} 
-            className="card glass" 
-            style={{ 
-              position: 'relative', 
-              overflow: 'hidden', 
-              cursor: 'pointer',
-              padding: '30px',
-              border: '1px solid var(--card-border)',
-              background: 'white'
-            }}
-            whileHover={{ y: -8, boxShadow: 'var(--shadow-medium)' }}
-            onClick={() => navigate(s.path)}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
-              <div style={{ color: s.color, background: `${s.color}15`, width: '40px', height: '40px', borderRadius: '10px', display: 'grid', placeItems: 'center' }}>{s.icon}</div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 700, background: 'rgba(61,191,193,0.1)', padding: '4px 10px', borderRadius: '20px' }}>{s.trend}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>{s.label}</div>
-              <div style={{ fontSize: '2.4rem', fontWeight: '700', letterSpacing: '-0.04em' }}>{s.value}</div>
-            </div>
-            <div style={{ position: 'absolute', bottom: '-15px', right: '-15px', opacity: 0.05, transform: 'scale(2.5)' }}>{s.icon}</div>
-          </motion.div>
-        ))}
-      </section>
-
-      {/* 3. Detailed Data Layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1fr', gap: '30px' }}>
-        
-        {/* Module 1: Live Compliance Engine */}
-        <div className="card glass" style={{ background: 'white' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
-            <h3 style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '1.25rem' }}>
-              <TrendingUp size={20} color="var(--primary)" /> Intelligent Filing Stream
-            </h3>
-            <button className="btn-ghost" style={{ fontSize: '0.8rem', padding: '6px 12px' }} onClick={() => navigate('/compliances')}>Master Control Center</button>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+        <header style={{ marginBottom: '40px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <h1 style={{ fontSize: '2.8rem', fontWeight: 600, letterSpacing: '-0.02em', marginBottom: '8px' }}>
+              Administrative Control
+            </h1>
+            <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem' }}>
+              System Integrity: <span style={{ color: 'var(--primary)', fontWeight: 600 }}>Optimal</span> | Connected to Secure Instance
+            </p>
           </div>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {pipeline.length > 0 ? pipeline.map((t, i) => (
-              <motion.div 
-                initial={{ opacity: 0, x: -10 }} 
-                animate={{ opacity: 1, x: 0 }} 
-                transition={{ delay: i * 0.05 }} 
-                key={i} 
-                className="glass" 
-                style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'space-between', 
-                  padding: '20px', 
-                  borderRadius: 'var(--radius-md)', 
-                  border: '1px solid var(--card-border)',
-                  background: 'var(--bg-main)'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                  <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'white', display: 'grid', placeItems: 'center' }}>
-                    <Monitor size={20} color="var(--primary)" />
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: '600', fontSize: '1rem', color: 'var(--text-main)' }}>{t.complianceName} • <span style={{ color: 'var(--primary-deep)' }}>{t.clientName}</span></div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px' }}>
-                      <Calendar size={12} /> Filing Cycle: April 2026
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <button onClick={() => navigate('/clients')} className="btn btn-primary"><UserPlus size={18} /> New Client</button>
+          </div>
+        </header>
+
+        {/* Stats Row */}
+        <section style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '20px', marginBottom: '40px' }}>
+          {[
+            { label: 'Total Clients', val: totalClients, icon: <Users size={18} />, color: 'var(--primary)' },
+            { label: 'Assigned', val: assignedClients, icon: <ShieldCheck size={18} />, color: '#3DBFC1' },
+            { label: 'Active CAs', val: cas.length, icon: <BarChart3 size={18} />, color: '#2FA3A0' },
+            { label: 'Pending Docs', val: pendingDocs, icon: <Clock size={18} />, color: '#B7C06E' },
+            { label: 'Unread Alerts', val: unreadAlerts, icon: <Bell size={18} />, color: '#E68A8A' },
+          ].map((s, i) => (
+            <div key={i} className="card" style={{ background: 'white' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <div style={{ width: '36px', height: '36px', background: `${s.color}15`, borderRadius: '10px', display: 'grid', placeItems: 'center', color: s.color }}>{s.icon}</div>
+              </div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.label}</div>
+              <div style={{ fontSize: '2rem', fontWeight: '700', marginTop: '4px' }}>{s.val}</div>
+            </div>
+          ))}
+        </section>
+
+        {/* CA Performance Table */}
+        <section className="card" style={{ background: 'white', marginBottom: '40px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+            <h2 style={{ fontSize: '1.4rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <TrendingUp size={24} color="var(--primary)" /> CA Performance Overview
+            </h2>
+            <button onClick={() => navigate('/cas')} className="btn btn-ghost" style={{ fontSize: '0.85rem' }}>View All <ArrowRight size={14} /></button>
+          </div>
+
+          {caPerformance.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
+              No CAs registered yet. CAs will appear when they create an account with role "CA".
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* Header */}
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', padding: '12px 20px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <span>CA Name</span><span>Clients</span><span>Pending</span><span>Approved</span><span>Status</span>
+              </div>
+              {caPerformance.map((ca, i) => (
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', padding: '16px 20px', background: 'var(--bg-main)', borderRadius: '12px', alignItems: 'center', border: ca.hasUrgent ? '1px solid #E68A8A' : '1px solid transparent' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'var(--primary)', display: 'grid', placeItems: 'center', color: 'white', fontWeight: 700, fontSize: '1rem' }}>{ca.name?.[0]}</div>
+                    <div>
+                      <div style={{ fontWeight: 600 }}>{ca.name}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{ca.email}</div>
                     </div>
                   </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ color: 'var(--primary-deep)', fontWeight: '700', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                     Process <ArrowUpRight size={14} />
+                  <span style={{ fontWeight: 700 }}>{ca.clientCount}</span>
+                  <span style={{ color: ca.pending > 0 ? '#B7C06E' : 'var(--text-muted)', fontWeight: 700 }}>{ca.pending}</span>
+                  <span style={{ color: 'var(--primary)', fontWeight: 700 }}>{ca.approved}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {ca.hasUrgent && <AlertTriangle size={16} color="#E68A8A" />}
+                    <span style={{ fontSize: '0.8rem', color: ca.hasUrgent ? '#E68A8A' : 'var(--primary)', fontWeight: 700 }}>
+                      {ca.hasUrgent ? 'Deadline Near' : 'Active'}
+                    </span>
                   </div>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px' }}>Est. Completion: 2h</div>
                 </div>
-              </motion.div>
-            )) : (
-              <div style={{ padding: '80px 40px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-main)', borderRadius: '16px', border: '1px dashed var(--card-border)' }}>
-                 <MousePointer2 size={32} style={{ opacity: 0.2, marginBottom: '16px' }} />
-                 <p>Operational Stream Offline. Awaiting New Data.</p>
-              </div>
-            )}
-          </div>
-        </div>
+              ))}
+            </div>
+          )}
+        </section>
 
-        {/* Module 2: System Intelligence & Quick Ops */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
-          
-          {/* Quick Ops Panel */}
-          <div className="card glass" style={{ background: 'var(--primary)', color: 'white', backgroundImage: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-deep) 100%)', border: 'none' }}>
-             <h3 style={{ marginBottom: '20px', fontSize: '1.2rem', fontWeight: 600 }}>Operational Command</h3>
-             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <button className="btn" style={{ width: '100%', background: 'white', color: 'var(--primary-deep)', border: 'none' }}>
-                  <PlusCircle size={18} /> New Enterprise Entity
-                </button>
-                <button className="btn" style={{ width: '100%', background: 'rgba(255,255,255,0.1)', color: 'white', border: '1px solid rgba(255,255,255,0.2)' }}>
-                  <History size={18} /> Bulk Audit Reports
-                </button>
-                <div style={{ marginTop: '10px', fontSize: '0.75rem', color: 'rgba(255,255,255,0.8)', textAlign: 'center' }}>
-                  Shortcut: <span style={{ fontWeight: 800 }}>Ctrl + N</span> for rapid registration
-                </div>
-             </div>
+        {/* Recent Clients */}
+        <section className="card" style={{ background: 'white' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+            <h2 style={{ fontSize: '1.4rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <Users size={24} color="var(--primary)" /> Client Registry
+            </h2>
+            <button onClick={() => navigate('/clients')} className="btn btn-ghost" style={{ fontSize: '0.85rem' }}>Manage All <ArrowRight size={14} /></button>
           </div>
 
-          {/* System Integrity (Alerts) */}
-          <div className="card glass" style={{ background: 'white' }}>
-             <h3 style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.15rem' }}>
-               <AlertTriangle size={20} color="var(--highlight)" /> Governance Alerts
-             </h3>
-             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                <div style={{ display: 'flex', gap: '16px' }}>
-                   <div style={{ width: '4px', height: 'auto', background: 'var(--primary)', borderRadius: '4px' }}></div>
-                   <div>
-                      <div style={{ fontSize: '0.9rem', fontWeight: '600' }}>Cloud Node Sync</div>
-                      <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>Global instances synchronized. Latency: 12ms</p>
-                   </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {clients.slice(0, 8).map((c, i) => {
+              const assignedCA = cas.find(ca => ca.uid === c.assigned_ca_uid)
+              return (
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr', padding: '14px 20px', background: 'var(--bg-main)', borderRadius: '12px', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{c.name}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>GSTIN: {c.gstin || 'N/A'}</div>
+                  </div>
+                  <div>
+                    {assignedCA ? (
+                      <div style={{ fontSize: '0.85rem' }}>
+                        CA: <strong style={{ color: 'var(--primary-deep)' }}>{assignedCA.name}</strong>
+                        <span style={{ 
+                          fontSize: '0.7rem', marginLeft: '8px', padding: '2px 8px', borderRadius: '20px',
+                          background: c.ca_status === 'accepted' ? 'rgba(61,191,193,0.1)' : c.ca_status === 'rejected' ? 'rgba(230,138,138,0.1)' : 'rgba(183,192,110,0.1)',
+                          color: c.ca_status === 'accepted' ? 'var(--primary-deep)' : c.ca_status === 'rejected' ? '#E68A8A' : '#8B8B2A',
+                          fontWeight: 700
+                        }}>
+                          {(c.ca_status || 'pending').toUpperCase()}
+                        </span>
+                      </div>
+                    ) : (
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No CA Assigned</span>
+                    )}
+                  </div>
+                  <div style={{ textAlign: 'right', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    {new Date(c.created_at || Date.now()).toLocaleDateString()}
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: '16px' }}>
-                   <div style={{ width: '4px', height: 'auto', background: 'var(--highlight)', borderRadius: '4px' }}></div>
-                   <div>
-                      <div style={{ fontSize: '0.9rem', fontWeight: '600' }}>Compliance Drift Detected</div>
-                      <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>2 entities require GSTIN re-verification.</p>
-                   </div>
-                </div>
-             </div>
-             <button className="btn btn-ghost" style={{ width: '100%', marginTop: '24px', fontSize: '0.8rem' }}>View Analytics History</button>
+              )
+            })}
+            {clients.length === 0 && <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>No clients registered yet.</div>}
           </div>
-        </div>
-
-      </div>
-
-      {/* Footer Branding */}
-      <footer style={{ marginTop: '60px', borderTop: '1px solid var(--card-border)', paddingTop: '30px', textAlign: 'center' }}>
-        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', letterSpacing: '0.05em' }}>
-          ARVIK CORE v2.4 | ENCRYPTED | COMPLIANCE FIRST ARCHITECTURE
-        </p>
-      </footer>
+        </section>
+      </motion.div>
     </div>
-  );
-};
+  )
+}
 
-export default Dashboard;
+export default Dashboard

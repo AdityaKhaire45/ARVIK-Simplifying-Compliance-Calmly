@@ -6,10 +6,14 @@ const Compliances = () => {
   const compliances = [
     { name: 'GSTR-1', type: 'Monthly', dueDay: 11, category: 'GST', stats: '92%' },
     { name: 'GSTR-3B', type: 'Monthly', dueDay: 20, category: 'GST', stats: '98%' },
-    { name: 'TDS Payment', type: 'Monthly', dueDay: 7, category: 'TDS', stats: '89%' },
-    { name: 'PF & ESIC', type: 'Monthly', dueDay: 15, category: 'Payroll', stats: '94%' },
-    { name: 'Professional Tax (PT)', type: 'Monthly', dueDay: 30, category: 'PT', stats: '99%' },
-    { name: 'ITR Filing (Indiv)', type: 'Yearly', dueDay: 212, category: 'Income Tax', stats: '75%' }
+    { name: 'GSTR-4', type: 'Yearly', dueDay: 30, category: 'GST', stats: '89%' }, // Composition
+    { name: 'GSTR-5', type: 'Monthly', dueDay: 20, category: 'GST', stats: '94%' }, // Non-resident
+    { name: 'GSTR-6', type: 'Monthly', dueDay: 13, category: 'GST', stats: '99%' }, // ISD
+    { name: 'GSTR-7', type: 'Monthly', dueDay: 10, category: 'GST', stats: '75%' }, // TDS
+    { name: 'GSTR-8', type: 'Monthly', dueDay: 10, category: 'GST', stats: '82%' }, // E-commerce
+    { name: 'GSTR-9', type: 'Yearly', dueDay: 31, category: 'GST', stats: '65%' }, // Annual
+    { name: 'GSTR-10', type: 'Final', dueDay: 0, category: 'GST', stats: '100%' }, // Final
+    { name: 'GSTR-11', type: 'Monthly', dueDay: 28, category: 'GST', stats: '90%' } // UIN
   ]
 
   return (

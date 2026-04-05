@@ -1,249 +1,221 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Search, Filter, MoreVertical, Edit, Trash, X, Check, Command } from 'lucide-react'
+import { Users, Plus, X, Search, ShieldCheck, UserCheck, UserX, Trash2, RefreshCw, Mail, Phone } from 'lucide-react'
+import { db, ref, push, set, onValue, update, remove } from '../firebase'
 
-import { db, ref, push, set, onValue, off } from '../firebase'
-
-const availableTypes = ["GST-1", "GST-3B", "TDS", "PF", "ESIC", "PT", "ITR"]
-
-const AddClientModal = ({ isOpen, onClose }) => {
-  const [formData, setFormData] = useState({
-    name: '',
-    gstin: '',
-    assigned_ca_id: '',
-    compliances: []
-  })
-  
-  const [cas, setCas] = useState([])
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    if (isOpen) {
-      const caRef = ref(db, "cas")
-      onValue(caRef, (snapshot) => {
-        const data = snapshot.val()
-        if (data) {
-          setCas(Object.entries(data).map(([id, val]) => ({ id, ...val })))
-        } else {
-          setCas([])
-        }
-      })
-    }
-  }, [isOpen])
-
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    setLoading(true)
-    try {
-      const clientRef = push(ref(db, "clients"))
-      const now = new Date()
-      const defaultDueDate = new Date(now.getFullYear(), now.getMonth(), 20).toISOString().split('T')[0]
-
-      const complianceObjects = formData.compliances.map(name => ({
-         name,
-         due_date: defaultDueDate,
-         status: 'pending'
-      }))
-
-      await set(clientRef, {
-        name: formData.name,
-        gstin: formData.gstin,
-        assigned_ca_id: formData.assigned_ca_id,
-        compliances: complianceObjects,
-        created_at: new Date().toISOString()
-      })
-      setFormData({ name: '', gstin: '', assigned_ca_id: '', compliances: [] })
-      onClose()
-    } catch (err) {
-      console.error("Firebase Error:", err)
-    }
-    setLoading(false)
-  }
-
-  const toggleCompliance = (name) => {
-    const next = formData.compliances.includes(name)
-      ? formData.compliances.filter(c => c !== name)
-      : [...formData.compliances, name]
-    setFormData({ ...formData, compliances: next })
-  }
-
-  if (!isOpen) return null
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.1)', display: 'grid', placeItems: 'center', zIndex: 1000, backdropFilter: 'blur(8px)' }}>
-      <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="card glass" style={{ width: '100%', maxWidth: '500px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px', alignItems: 'center' }}>
-          <h2 style={{ fontSize: '1.4rem' }}>Register New Entity</h2>
-          <button onClick={onClose} className="btn" style={{ padding: '4px', background: 'transparent' }}><X size={20} /></button>
-        </div>
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Business Name</label>
-            <input required type="text" style={{ width: '100%', padding: '12px', border: '1px solid var(--card-border)', outline: 'none', borderRadius: '10px', background: 'white' }} 
-              placeholder="e.g. Acme Corp" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-          </div>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>GSTIN Number</label>
-            <input required type="text" style={{ width: '100%', padding: '12px', border: '1px solid var(--card-border)', outline: 'none', borderRadius: '10px', background: 'white' }} 
-              placeholder="15-digit alphanumeric" value={formData.gstin} onChange={e => setFormData({...formData, gstin: e.target.value})} />
-          </div>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Assigned Consultant</label>
-            <select required style={{ width: '100%', padding: '12px', border: '1px solid var(--card-border)', outline: 'none', borderRadius: '10px', background: 'white' }}
-              value={formData.assigned_ca_id} onChange={e => setFormData({...formData, assigned_ca_id: e.target.value})}>
-              <option value="">Select CA</option>
-              {cas.map(ca => <option key={ca.id} value={ca.id}>{ca.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Compliance Modules</label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-              {availableTypes.map(name => (
-                <div key={name} onClick={() => toggleCompliance(name)} style={{ 
-                   padding: '6px 14px', cursor: 'pointer', borderRadius: '20px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px',
-                   background: formData.compliances.includes(name) ? 'var(--primary)' : 'rgba(0,0,0,0.03)',
-                   color: formData.compliances.includes(name) ? 'white' : 'var(--text-muted)',
-                   border: '1px solid transparent',
-                   transition: 'all 0.2s'
-                }}>
-                  {formData.compliances.includes(name) && <Check size={14} />}
-                  {name}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div style={{ padding: '12px', background: 'var(--bg-main)', borderRadius: '10px', fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Command size={14} /> Shortcut: Press <span style={{ fontWeight: 600 }}>Ctrl + S</span> to quick save
-          </div>
-          <button disabled={loading} type="submit" className="btn btn-primary" style={{ height: '48px', fontSize: '1rem' }}>
-            {loading ? 'Processing...' : 'Assign & Save'}
-          </button>
-        </form>
-      </motion.div>
-    </div>
-  )
-}
-
-const Clients = () => {
+const Clients = ({ role, user }) => {
   const [clients, setClients] = useState([])
   const [cas, setCas] = useState([])
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [searchTerm, setSearchTerm] = useState('')
+  const [showModal, setShowModal] = useState(false)
+  const [assignModal, setAssignModal] = useState(null) // clientId or null
+  const [search, setSearch] = useState('')
+  const [form, setForm] = useState({ name: '', gstin: '', phone: '', email: '' })
 
   useEffect(() => {
-    const clientsRef = ref(db, "clients")
-    const caRef = ref(db, "cas")
-
-    onValue(caRef, (snapshot) => {
-      const data = snapshot.val()
-      if (data) {
-        setCas(Object.entries(data).map(([id, val]) => ({ id, ...val })))
+    onValue(ref(db, 'clients'), snap => {
+      const d = snap.val()
+      setClients(d ? Object.entries(d).map(([id, v]) => ({ id, ...v })) : [])
+    })
+    // Get CAs from users with role=ca
+    onValue(ref(db, 'users'), snap => {
+      const d = snap.val()
+      if (d) {
+        setCas(Object.entries(d).filter(([_, v]) => v.role === 'ca').map(([id, v]) => ({ uid: id, ...v })))
       }
     })
-
-    const unsubscribe = onValue(clientsRef, (snapshot) => {
-      const data = snapshot.val()
-      if (data) {
-        const list = Object.entries(data).map(([id, val]) => ({ id, ...val }))
-        setClients(list)
-      } else {
-        setClients([])
-      }
-    })
-    return () => off(clientsRef)
   }, [])
 
-  const filteredClients = clients.filter(c => 
-    c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    c.gstin.toLowerCase().includes(searchTerm.toLowerCase())
+  const createClient = async (e) => {
+    e.preventDefault()
+    const clientRef = push(ref(db, 'clients'))
+    await set(clientRef, {
+      ...form,
+      assigned_ca_uid: null,
+      ca_status: 'none',
+      created_by: user.uid,
+      created_at: new Date().toISOString()
+    })
+    setForm({ name: '', gstin: '', phone: '', email: '' })
+    setShowModal(false)
+  }
+
+  const assignCA = async (clientId, caUid) => {
+    await update(ref(db, `clients/${clientId}`), {
+      assigned_ca_uid: caUid,
+      ca_status: 'pending'
+    })
+    // Push notification alert to CA
+    const client = clients.find(c => c.id === clientId)
+    await push(ref(db, 'alerts'), {
+      target_uid: caUid,
+      message: `New client "${client?.name}" assigned to you. Please accept or reject.`,
+      client_name: client?.name,
+      type: 'info',
+      created_at: new Date().toISOString(),
+      read: false
+    })
+    setAssignModal(null)
+  }
+
+  const deleteClient = async (clientId) => {
+    if (window.confirm('Are you sure you want to remove this client?')) {
+      await remove(ref(db, `clients/${clientId}`))
+    }
+  }
+
+  const filtered = clients.filter(c => 
+    (c.name || '').toLowerCase().includes(search.toLowerCase()) ||
+    (c.gstin || '').toLowerCase().includes(search.toLowerCase())
   )
 
   return (
     <div style={{ maxWidth: '1200px' }}>
-      <AddClientModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
-      
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px' }}>
           <div>
-            <h1 style={{ fontSize: '2.5rem', marginBottom: '8px' }}>Client Directory</h1>
-            <p style={{ color: 'var(--text-muted)' }}>Managing <span style={{ fontWeight: 600, color: 'var(--primary-deep)' }}>{clients.length} active entities</span> in the ecosystem.</p>
+            <h1 style={{ fontSize: '2.5rem', fontWeight: 600, marginBottom: '8px' }}>Client Management</h1>
+            <p style={{ color: 'var(--text-muted)' }}>Create clients, assign CAs, track assignment status.</p>
           </div>
-          <button className="btn btn-primary" onClick={() => setIsModalOpen(true)}>
-            <Plus size={18} /> New Registration
+          <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+            <Plus size={18} /> Create New Client
           </button>
         </header>
 
-        <section className="card glass" style={{ padding: '0', overflow: 'hidden' }}>
-          <div style={{ padding: '24px', borderBottom: '1px solid var(--card-border)', display: 'flex', gap: '16px', background: 'white' }}>
-             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--bg-main)', borderRadius: '12px', padding: '10px 18px', flex: 1 }}>
-                <Search size={18} color="var(--text-muted)" />
-                <input 
-                  type="text" 
-                  placeholder="Query by Name, GSTIN or Consultant..." 
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  style={{ background: 'transparent', border: 'none', color: 'var(--text-main)', width: '100%', outline: 'none', fontSize: '0.95rem' }} 
-                />
-             </div>
-             <button className="btn btn-ghost"><Filter size={16} /> Filters</button>
+        {/* Search */}
+        <div style={{ marginBottom: '24px', display: 'flex', gap: '12px' }}>
+          <div style={{ flex: 1, position: 'relative' }}>
+            <Search size={16} style={{ position: 'absolute', left: '14px', top: '14px', color: 'var(--text-muted)' }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or GSTIN..."
+              style={{ width: '100%', padding: '12px 12px 12px 40px', borderRadius: '12px', border: '1px solid var(--card-border)', outline: 'none', background: 'white' }} />
           </div>
+        </div>
 
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-              <thead>
-                <tr style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid var(--card-border)' }}>
-                  <th style={{ padding: '16px 24px', fontWeight: 600 }}>Entity Name</th>
-                  <th style={{ padding: '16px 24px', fontWeight: 600 }}>Tax Identifier</th>
-                  <th style={{ padding: '16px 24px', fontWeight: 600 }}>Consultant</th>
-                  <th style={{ padding: '16px 24px', fontWeight: 600 }}>Modules</th>
-                  <th style={{ padding: '16px 24px', fontWeight: 600 }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredClients.map((c) => {
-                  const assignedCA = cas.find(ca => String(ca.id) === String(c.assigned_ca_id));
-                  return (
-                    <tr key={c.id} style={{ borderBottom: '1px solid var(--card-border)', transition: 'background 0.2s' }}>
-                      <td style={{ padding: '20px 24px' }}>
-                        <div style={{ fontWeight: '600', color: 'var(--text-main)' }}>{c.name}</div>
-                      </td>
-                      <td style={{ padding: '20px 24px', color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: '0.85rem' }}>{c.gstin}</td>
-                      <td style={{ padding: '20px 24px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'var(--bg-accent)', fontSize: '0.75rem', display: 'grid', placeItems: 'center', color: 'white', fontWeight: 600 }}>{(assignedCA?.name || 'U')[0]}</div>
-                          <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>{assignedCA?.name || 'Pending'}</span>
-                        </div>
-                      </td>
-                      <td style={{ padding: '20px 24px' }}>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                           {c.compliances?.length > 0 ? c.compliances.map((tag, idx) => (
-                             <span key={idx} className="badge badge-success" style={{ fontSize: '0.65rem' }}>
-                               {tag.name || tag}
-                             </span>
-                           )) : (
-                             <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>-</span>
-                           )}
-                        </div>
-                      </td>
-                      <td style={{ padding: '20px 24px' }}>
-                        <div style={{ display: 'flex', gap: '14px', color: 'var(--text-muted)' }}>
-                          <Edit size={16} style={{ cursor: 'pointer' }} />
-                          <Trash size={16} style={{ cursor: 'pointer', opacity: 0.5 }} />
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-          {filteredClients.length === 0 && (
-            <div style={{ padding: '100px 40px', textAlign: 'center', color: 'var(--text-muted)' }}>
-              No entities matching your query.
-            </div>
-          )}
-        </section>
+        {/* Client Cards */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {filtered.map(c => {
+            const assignedCA = cas.find(ca => ca.uid === c.assigned_ca_uid)
+            return (
+              <div key={c.id} className="card" style={{ background: 'white', display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr', gap: '20px', alignItems: 'center' }}>
+                {/* Client Info */}
+                <div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '6px' }}>{c.name}</div>
+                  <div style={{ display: 'flex', gap: '16px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    {c.gstin && <span>GSTIN: {c.gstin}</span>}
+                    {c.phone && <span><Phone size={12} /> {c.phone}</span>}
+                    {c.email && <span><Mail size={12} /> {c.email}</span>}
+                  </div>
+                </div>
+
+                {/* CA Assignment */}
+                <div>
+                  {!c.assigned_ca_uid || c.ca_status === 'none' ? (
+                    <button onClick={() => setAssignModal(c.id)} className="btn btn-primary" style={{ fontSize: '0.85rem', padding: '10px 20px' }}>
+                      <ShieldCheck size={16} /> Assign CA
+                    </button>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--primary)', display: 'grid', placeItems: 'center', color: 'white', fontWeight: 700, fontSize: '0.9rem' }}>
+                        {assignedCA?.name?.[0] || '?'}
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{assignedCA?.name || 'Unknown CA'}</div>
+                        <span style={{ 
+                          fontSize: '0.7rem', padding: '2px 10px', borderRadius: '20px', fontWeight: 700,
+                          background: c.ca_status === 'accepted' ? 'rgba(61,191,193,0.1)' : c.ca_status === 'rejected' ? 'rgba(230,138,138,0.1)' : 'rgba(183,192,110,0.15)',
+                          color: c.ca_status === 'accepted' ? 'var(--primary-deep)' : c.ca_status === 'rejected' ? '#B35E5E' : '#8B8B2A'
+                        }}>
+                          {c.ca_status === 'accepted' ? '✓ ACCEPTED' : c.ca_status === 'rejected' ? '✗ REJECTED' : '⏳ PENDING'}
+                        </span>
+                      </div>
+                      <button onClick={() => setAssignModal(c.id)} className="btn btn-ghost" style={{ padding: '6px', marginLeft: '8px' }} title="Reassign CA">
+                        <RefreshCw size={14} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                  <button onClick={() => deleteClient(c.id)} className="btn btn-ghost" style={{ padding: '8px', color: '#B35E5E' }}><Trash2 size={16} /></button>
+                </div>
+              </div>
+            )
+          })}
+          {filtered.length === 0 && <div className="card" style={{ textAlign: 'center', padding: '80px', color: 'var(--text-muted)' }}>No clients found. Create one to get started.</div>}
+        </div>
       </motion.div>
+
+      {/* Create Client Modal */}
+      <AnimatePresence>
+        {showModal && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.15)', display: 'grid', placeItems: 'center', zIndex: 1000, backdropFilter: 'blur(8px)' }}>
+            <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }} className="card" style={{ width: '100%', maxWidth: '480px', background: 'white' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
+                <h2 style={{ fontSize: '1.4rem' }}>Create New Client</h2>
+                <button onClick={() => setShowModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} /></button>
+              </div>
+              <form onSubmit={createClient} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Business / Client Name *</label>
+                  <input required value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="e.g. ABC Traders Pvt Ltd"
+                    style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--card-border)', outline: 'none' }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>GSTIN</label>
+                  <input value={form.gstin} onChange={e => setForm({...form, gstin: e.target.value})} placeholder="22AAAAA0000A1Z5"
+                    style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--card-border)', outline: 'none' }} />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Phone</label>
+                    <input value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="+91..."
+                      style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--card-border)', outline: 'none' }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Email</label>
+                    <input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} placeholder="client@company.com"
+                      style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--card-border)', outline: 'none' }} />
+                  </div>
+                </div>
+                <button type="submit" className="btn btn-primary" style={{ marginTop: '8px', height: '48px', fontSize: '1rem' }}>Create Client</button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Assign CA Modal */}
+      <AnimatePresence>
+        {assignModal && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.15)', display: 'grid', placeItems: 'center', zIndex: 1000, backdropFilter: 'blur(8px)' }}>
+            <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }} className="card" style={{ width: '100%', maxWidth: '450px', background: 'white' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
+                <h2 style={{ fontSize: '1.4rem' }}>Assign CA</h2>
+                <button onClick={() => setAssignModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} /></button>
+              </div>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '20px' }}>
+                Select a Chartered Accountant to assign to this client. The CA will need to accept the assignment.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {cas.length === 0 && <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No CAs registered. Ask a CA to create an account first.</div>}
+                {cas.map(ca => (
+                  <button key={ca.uid} onClick={() => assignCA(assignModal, ca.uid)}
+                    style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 18px', background: 'var(--bg-main)', border: '1px solid var(--card-border)', borderRadius: '12px', cursor: 'pointer', textAlign: 'left', width: '100%', transition: 'all 0.2s' }}
+                    onMouseEnter={e => { e.target.style.borderColor = 'var(--primary)'; e.target.style.background = 'white' }}
+                    onMouseLeave={e => { e.target.style.borderColor = 'var(--card-border)'; e.target.style.background = 'var(--bg-main)' }}
+                  >
+                    <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'var(--primary)', display: 'grid', placeItems: 'center', color: 'white', fontWeight: 700, flexShrink: 0 }}>{ca.name?.[0]}</div>
+                    <div>
+                      <div style={{ fontWeight: 600 }}>{ca.name}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{ca.email}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

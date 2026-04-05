@@ -1,311 +1,361 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { db, ref, onValue, off, push, set } from '../firebase'
+import { db, ref, onValue, push, set, update, storage, storageRef, uploadBytes, getDownloadURL } from '../firebase'
 import { 
-  ShieldCheck, Calendar as CalendarIcon, Bell, ClipboardList, 
-  TrendingUp, Users, Paperclip, Send, MessageSquare, 
-  Download, AlertCircle, CheckCircle, Clock, Info,
-  DollarSign, PieChart, ArrowUpRight, ArrowDownRight,
-  MoreVertical, Search, Filter, History
+  Upload, CheckCircle, Clock, XCircle, MessageSquare, Send, 
+  FileText, AlertTriangle, Shield, Scan, Loader2, Bell
 } from 'lucide-react'
 
-// --- HELPER: CHAT COMPONENT ---
-const ChatBox = ({ clientId, advisorName }) => {
-  const [messages, setMessages] = useState([])
-  const [input, setInput] = useState('')
-  const scrollRef = useRef(null)
-
-  useEffect(() => {
-    const msgRef = ref(db, `clients/${clientId}/messages`)
-    onValue(msgRef, (snap) => {
-      const data = snap.val()
-      if (data) setMessages(Object.values(data))
-    })
-  }, [clientId])
-
-  useEffect(() => {
-    scrollRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-
-  const sendMessage = async () => {
-    if (!input.trim()) return
-    const msgRef = push(ref(db, `clients/${clientId}/messages`))
-    await set(msgRef, {
-      text: input,
-      sender: 'Client',
-      timestamp: new Date().toISOString()
-    })
-    setInput('')
-  }
-
-  return (
-    <div className="card glass" style={{ height: '400px', display: 'flex', flexDirection: 'column', padding: '0', overflow: 'hidden', background: 'white' }}>
-      <div style={{ padding: '20px', borderBottom: '1px solid var(--card-border)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '10px' }}>
-        <MessageSquare size={18} color="var(--primary)" /> Consultation with {advisorName || 'Advisor'}
-      </div>
-      <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px', background: 'var(--bg-main)' }}>
-        {messages.map((m, i) => (
-          <div key={i} style={{ alignSelf: m.sender === 'Client' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
-            <div style={{ 
-              padding: '10px 16px', borderRadius: '12px', fontSize: '0.85rem',
-              background: m.sender === 'Client' ? 'var(--primary)' : 'white',
-              color: m.sender === 'Client' ? 'white' : 'var(--text-main)',
-              boxShadow: 'var(--shadow-soft)'
-            }}>
-              {m.text}
-            </div>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '4px', textAlign: m.sender === 'Client' ? 'right' : 'left', fontWeight: 600 }}>{m.sender}</div>
-          </div>
-        ))}
-        <div ref={scrollRef} />
-      </div>
-      <div style={{ padding: '16px', borderTop: '1px solid var(--card-border)', display: 'flex', gap: '10px' }}>
-        <input 
-          style={{ flex: 1, padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--card-border)', color: 'var(--text-main)', fontSize: '0.85rem', outline: 'none' }} 
-          placeholder="Query your personal expert..."
-          value={input} onChange={e => setInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && sendMessage()}
-        />
-        <button onClick={sendMessage} className="btn btn-primary" style={{ padding: '10px' }}><Send size={18} /></button>
-      </div>
-    </div>
-  )
-}
-
-// --- HELPER: MINI CALENDAR ---
-const MiniCalendar = ({ complianceDates }) => {
-  const days = Array.from({ length: 30 }, (_, i) => i + 1)
-  return (
-    <div className="card glass" style={{ background: 'white' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', fontWeight: '600' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CalendarIcon size={18} color="var(--primary)" /> Filing Cycle</div>
-        <div style={{ fontSize: '0.8rem', color: 'var(--primary-deep)' }}>April 2026</div>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px' }}>
-        {days.map(d => {
-          const isDeadline = complianceDates.some(cd => cd.day === d)
-          return (
-            <div key={d} style={{ 
-              aspectRatio: '1', display: 'grid', placeItems: 'center', fontSize: '0.7rem', borderRadius: '8px',
-              background: isDeadline ? 'var(--primary)' : 'var(--bg-main)',
-              color: isDeadline ? 'white' : 'var(--text-muted)',
-              fontWeight: isDeadline ? 700 : 400
-            }}>
-              {d}
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-const ClientDashboard = () => {
+const ClientDashboard = ({ user, initialTab }) => {
   const [clientData, setClientData] = useState(null)
-  const [assignedCA, setAssignedCA] = useState(null)
+  const [caData, setCaData] = useState(null)
+  const [documents, setDocuments] = useState([])
+  const [alerts, setAlerts] = useState([])
+  const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(true)
-  const [docName, setDocName] = useState('')
-  const [docSearch, setDocSearch] = useState('')
+  const [tab, setTab] = useState(initialTab || 'dashboard')
+
+  // Upload state
+  const [uploadFile, setUploadFile] = useState(null)
+  const [docType, setDocType] = useState('expense')
+  const [uploading, setUploading] = useState(false)
+  const [uploadResult, setUploadResult] = useState(null)
+
+  // Chat state
+  const [chatInput, setChatInput] = useState('')
+  const chatEndRef = useRef(null)
 
   useEffect(() => {
-    const clientsRef = ref(db, "clients")
-    const unsubscribe = onValue(clientsRef, (snapshot) => {
-      const data = snapshot.val()
-      if (data) {
-        const firstId = Object.keys(data)[0]
-        const client = data[firstId]
-        setClientData({ id: firstId, ...client })
-        if (client.assigned_ca_id) {
-           onValue(ref(db, "cas/" + client.assigned_ca_id), (caSnap) => {
-             setAssignedCA(caSnap.val())
-           }, { onlyOnce: true })
+    if (!user) return
+    // Find client profile linked to this user
+    onValue(ref(db, 'clients'), snap => {
+      const d = snap.val()
+      if (d) {
+        // Find client where user_uid matches, or first client for demo
+        const entries = Object.entries(d)
+        const myClient = entries.find(([_, v]) => v.user_uid === user.uid)
+        if (myClient) {
+          setClientData({ id: myClient[0], ...myClient[1] })
+        } else if (entries.length > 0) {
+          // Fallback: first client for demo purposes
+          setClientData({ id: entries[0][0], ...entries[0][1] })
         }
       }
       setLoading(false)
     })
-    return () => off(clientsRef)
-  }, [])
+  }, [user])
 
-  const handleUpload = async () => {
-    if (!docName.trim()) return
-    const docRef = push(ref(db, `clients/${clientData.id}/documents`))
-    await set(docRef, {
-      name: docName,
-      status: 'verified',
-      timestamp: new Date().toISOString()
+  useEffect(() => {
+    if (!clientData) return
+    // Get assigned CA info
+    if (clientData.assigned_ca_uid) {
+      onValue(ref(db, `users/${clientData.assigned_ca_uid}`), snap => {
+        setCaData(snap.val())
+      })
+    }
+    // Get documents for this client
+    onValue(ref(db, 'documents'), snap => {
+      const d = snap.val()
+      if (d) {
+        const myDocs = Object.entries(d).map(([id, v]) => ({ id, ...v })).filter(doc => doc.client_uid === clientData.id)
+        setDocuments(myDocs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)))
+      }
     })
-    setDocName('')
-    // In-built notification or feedback here
+    // Get alerts
+    onValue(ref(db, 'alerts'), snap => {
+      const d = snap.val()
+      if (d) {
+        setAlerts(Object.entries(d).map(([id, v]) => ({ id, ...v })).filter(a => a.target_uid === user?.uid || a.target_uid === clientData.id).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)))
+      }
+    })
+    // Get messages
+    onValue(ref(db, `messages/${clientData.id}`), snap => {
+      const d = snap.val()
+      if (d) setMessages(Object.values(d).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)))
+      else setMessages([])
+    })
+  }, [clientData])
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  // Upload to backend
+  const handleUpload = async () => {
+    if (!uploadFile || !clientData) return
+    setUploading(true)
+    setUploadResult(null)
+    try {
+      const formData = new FormData()
+      formData.append('file', uploadFile)
+      formData.append('client_id', clientData.id)
+      formData.append('doc_type', docType)
+
+      const res = await fetch('http://127.0.0.1:8000/upload', { method: 'POST', body: formData })
+      if (!res.ok) throw new Error(`Server error: ${res.statusText}`)
+      const data = await res.json()
+
+      // Upload file to Firebase Storage to get a viewable URL
+      const fileExt = uploadFile.name.split('.').pop()
+      const fbStorageRef = storageRef(storage, `documents/${clientData.id}/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`)
+      await uploadBytes(fbStorageRef, uploadFile)
+      const downloadUrl = await getDownloadURL(fbStorageRef)
+
+      // Save to documents node with client_uid
+      const docRef = push(ref(db, 'documents'))
+      await set(docRef, {
+        client_uid: clientData.id,
+        file_name: `AI_${docType.toUpperCase()}_${data.data?.vendor || uploadFile.name}`,
+        file_url: downloadUrl,
+        mime_type: uploadFile.type,
+        type: docType,
+        status: 'pending',
+        extracted_data: data.data,
+        amount: data.data?.amount || 0,
+        timestamp: new Date().toISOString()
+      })
+
+      // Alert CA
+      if (clientData.assigned_ca_uid) {
+        await push(ref(db, 'alerts'), {
+          target_uid: clientData.assigned_ca_uid,
+          message: `New ${docType} document uploaded by "${clientData.name}". Please review.`,
+          client_name: clientData.name,
+          type: 'info',
+          created_at: new Date().toISOString(),
+          read: false
+        })
+      }
+
+      setUploadResult(data)
+      setUploadFile(null)
+    } catch (err) {
+      setUploadResult({ error: err.message })
+    }
+    setUploading(false)
   }
 
-  if (loading) return <div style={{ padding: '60px', color: 'var(--text-muted)', textAlign: 'center' }}>Secure Access Initializing...</div>
-  if (!clientData) return <div style={{ padding: '60px', color: 'var(--text-muted)', textAlign: 'center' }}>No Enterprise Entity profiles found for your account.</div>
+  // Send chat message
+  const sendMessage = async () => {
+    if (!chatInput.trim() || !clientData) return
+    await push(ref(db, `messages/${clientData.id}`), {
+      text: chatInput,
+      sender_uid: user?.uid,
+      sender_role: 'client',
+      sender_name: 'Client',
+      timestamp: new Date().toISOString()
+    })
+    setChatInput('')
+  }
 
-  const compTasks = clientData.compliances || []
-  const completedCount = compTasks.filter(c => c.status === 'completed').length
-  const progressPercent = compTasks.length ? Math.round((completedCount / compTasks.length) * 100) : 0
-  
-  const docs = clientData.documents ? Object.values(clientData.documents) : []
-  const filteredDocs = docs.filter(d => d.name.toLowerCase().includes(docSearch.toLowerCase()))
-  
-  const complianceDates = compTasks.map(t => ({ day: parseInt(t.due_date?.split('-')[2] || '20'), name: t.name }))
+  if (loading) return <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading your portal...</div>
+  if (!clientData) return <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>No client profile found. Ask your admin to register you.</div>
+
+  const isCAAssigned = clientData.assigned_ca_uid && clientData.ca_status === 'accepted'
+  const pendingDocs = documents.filter(d => d.status === 'pending').length
+  const approvedDocs = documents.filter(d => d.status === 'approved').length
+  const rejectedDocs = documents.filter(d => d.status === 'rejected').length
 
   return (
-    <div style={{ maxWidth: '1400px' }}>
+    <div style={{ maxWidth: '1200px' }}>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-        <header style={{ marginBottom: '40px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-           <div>
-              <h1 style={{ fontSize: '2.8rem', fontWeight: 600, letterSpacing: '-0.02em', marginBottom: '8px' }}>
-                Portal: <span style={{ color: 'var(--primary)' }}>{clientData.name}</span>
-              </h1>
-              <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem' }}>
-                Primary Expert: <span style={{ color: 'var(--primary-deep)', fontWeight: 600 }}>{assignedCA?.name || 'Assigning Expertise...'}</span> | Reg Index: <span style={{ color: 'var(--primary)' }}>Verified</span>
-              </p>
-           </div>
-           <div style={{ display: 'flex', gap: '12px' }}>
-              <button className="btn btn-ghost"><History size={18} /> Filing History</button>
-              <button className="btn btn-primary"><Download size={18} /> Financial Pack</button>
-           </div>
+        <header style={{ marginBottom: '30px' }}>
+          <h1 style={{ fontSize: '2.5rem', fontWeight: 600, marginBottom: '8px' }}>
+            Welcome, <span style={{ color: 'var(--primary)' }}>{clientData.name}</span>
+          </h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '1rem' }}>
+            Assigned CA: {isCAAssigned ? <strong style={{ color: 'var(--primary-deep)' }}>{caData?.name || 'Loading...'}</strong> : 
+            <span style={{ color: '#B7C06E' }}>{clientData.ca_status === 'pending' ? '⏳ CA Pending Acceptance' : '❌ No CA Assigned Yet'}</span>}
+          </p>
         </header>
 
-        {/* 1. Metric Layer */}
-        <section style={{ display: 'grid', gridTemplateColumns: '1.4fr 2.6fr', gap: '30px', marginBottom: '40px' }}>
-          <div className="card glass" style={{ background: 'white', padding: '32px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
-                <span style={{ fontWeight: '600', fontSize: '1rem', color: 'var(--text-muted)' }}>Compliance Fulfillment</span>
-                <span style={{ color: 'var(--primary-deep)', fontWeight: '800', fontSize: '1.2rem' }}>{progressPercent}%</span>
-             </div>
-             <div style={{ height: '12px', background: 'var(--bg-main)', borderRadius: '12px', overflow: 'hidden', marginBottom: '20px' }}>
-                <motion.div initial={{ width: 0 }} animate={{ width: `${progressPercent}%` }} style={{ height: '100%', background: 'var(--primary)' }} />
-             </div>
-             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-               <span>Cycle Status: Stable</span>
-               <span style={{ color: 'var(--primary)' }}>{completedCount} filed</span>
-             </div>
-          </div>
+        {/* Tab Navigation */}
+        <div style={{ display: 'flex', gap: '4px', marginBottom: '30px', background: 'white', borderRadius: '14px', padding: '4px', boxShadow: 'var(--shadow-soft)', width: 'fit-content' }}>
+          {[
+            { key: 'dashboard', label: 'Overview', icon: <FileText size={16} /> },
+            { key: 'upload', label: 'Upload Docs', icon: <Upload size={16} /> },
+            { key: 'chat', label: 'Chat with CA', icon: <MessageSquare size={16} /> },
+          ].map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)}
+              style={{ 
+                padding: '10px 20px', borderRadius: '10px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem',
+                display: 'flex', alignItems: 'center', gap: '8px',
+                background: tab === t.key ? 'var(--primary)' : 'transparent',
+                color: tab === t.key ? 'white' : 'var(--text-muted)'
+              }}>
+              {t.icon} {t.label}
+            </button>
+          ))}
+        </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px' }}>
-             {[
-               { label: 'Pending GST', val: '₹14.2L', trend: '+1.2%', icon: <DollarSign size={18} /> },
-               { label: 'Available ITC', val: '₹4.8L', trend: 'Live', icon: <ArrowDownRight size={18} /> },
-               { label: 'Audit Risk', val: 'Minimal', trend: 'Low', icon: <ShieldCheck size={18} /> },
-               { label: 'Filing Health', val: '98%', trend: 'Optimum', icon: <PieChart size={18} /> },
-             ].map((s, i) => (
-               <div key={i} className="card glass" style={{ background: 'white', display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                    <div style={{ width: '32px', height: '32px', background: 'var(--bg-main)', borderRadius: '8px', display: 'grid', placeItems: 'center', color: 'var(--primary)' }}>{s.icon}</div>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--primary)', fontWeight: 800 }}>{s.trend}</div>
+        {/* ========== DASHBOARD TAB ========== */}
+        {tab === 'dashboard' && (
+          <div>
+            {/* Stats */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '30px' }}>
+              {[
+                { label: 'Pending', val: pendingDocs, icon: <Clock size={18} />, color: '#B7C06E' },
+                { label: 'Approved', val: approvedDocs, icon: <CheckCircle size={18} />, color: 'var(--primary)' },
+                { label: 'Rejected', val: rejectedDocs, icon: <XCircle size={18} />, color: '#E68A8A' },
+                { label: 'Alerts', val: alerts.filter(a => !a.read).length, icon: <Bell size={18} />, color: '#B7C06E' },
+              ].map((s, i) => (
+                <div key={i} className="card" style={{ background: 'white' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <div style={{ width: '32px', height: '32px', background: `${s.color}15`, borderRadius: '8px', display: 'grid', placeItems: 'center', color: s.color }}>{s.icon}</div>
                   </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.label}</div>
-                  <div style={{ fontSize: '1.4rem', fontWeight: '700', marginTop: '4px' }}>{s.val}</div>
-               </div>
-             ))}
-          </div>
-        </section>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>{s.label}</div>
+                  <div style={{ fontSize: '1.8rem', fontWeight: 700 }}>{s.val}</div>
+                </div>
+              ))}
+            </div>
 
-        {/* 2. Operations Layer */}
-        <section style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr', gap: '30px' }}>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
-            {/* Regulatory Roadmap */}
-            <div className="card glass" style={{ background: 'white' }}>
-               <h3 style={{ marginBottom: '32px', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.3rem' }}><ShieldCheck color="var(--primary)" /> Governance Pipeline</h3>
-               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {compTasks.map((t, i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '24px', borderRadius: '16px', background: 'var(--bg-main)', border: '1px solid var(--card-border)' }}>
-                       <div>
-                         <div style={{ fontWeight: '600', fontSize: '1.05rem' }}>{t.name}</div>
-                         <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <Clock size={12} /> Deadline: {new Date(t.due_date || Date.now()).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                         </div>
-                       </div>
-                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                         <span className={t.status === 'completed' ? 'badge-success' : 'badge-warning'} style={{ padding: '6px 16px', borderRadius: '30px', fontSize: '0.75rem', fontWeight: 800 }}>
-                            {t.status.toUpperCase()}
-                         </span>
-                         <MoreVertical size={18} color="var(--text-muted)" style={{ cursor: 'pointer' }} />
-                       </div>
+            {/* Document List */}
+            <div className="card" style={{ background: 'white' }}>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '20px' }}>Your Documents</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {documents.length === 0 && <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>No documents yet. Upload one to get started.</div>}
+                {documents.map(d => (
+                  <div key={d.id} style={{ 
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderRadius: '12px', background: 'var(--bg-main)',
+                    borderLeft: `4px solid ${d.status === 'approved' ? 'var(--primary)' : d.status === 'rejected' ? '#E68A8A' : '#B7C06E'}`
+                  }}>
+                    <div>
+                      <div style={{ fontWeight: 600 }}>{d.file_name}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{new Date(d.timestamp).toLocaleString()}</div>
+                      {d.status === 'rejected' && d.rejection_msg && <div style={{ fontSize: '0.75rem', color: '#B35E5E', marginTop: '4px' }}>⚠ {d.rejection_msg}</div>}
+                    </div>
+                    <span style={{ 
+                      fontSize: '0.7rem', fontWeight: 700, padding: '4px 12px', borderRadius: '20px',
+                      background: d.status === 'approved' ? 'rgba(61,191,193,0.1)' : d.status === 'rejected' ? 'rgba(230,138,138,0.1)' : 'rgba(183,192,110,0.15)',
+                      color: d.status === 'approved' ? 'var(--primary-deep)' : d.status === 'rejected' ? '#B35E5E' : '#8B8B2A'
+                    }}>
+                      {d.status?.toUpperCase()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Alerts */}
+            {alerts.length > 0 && (
+              <div className="card" style={{ background: 'white', marginTop: '24px' }}>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <AlertTriangle size={18} color="#E68A8A" /> Recent Alerts
+                </h3>
+                {alerts.slice(0, 5).map(a => (
+                  <div key={a.id} style={{ padding: '10px 14px', borderLeft: '3px solid #E68A8A', marginBottom: '8px', fontSize: '0.85rem' }}>
+                    {a.message}
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px' }}>{new Date(a.created_at).toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ========== UPLOAD TAB ========== */}
+        {tab === 'upload' && (
+          <div className="card" style={{ background: 'white' }}>
+            {!isCAAssigned ? (
+              <div style={{ textAlign: 'center', padding: '80px', color: 'var(--text-muted)' }}>
+                <Shield size={48} style={{ margin: '0 auto 16px', opacity: 0.3 }} />
+                <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>CA Not Yet Assigned</div>
+                <p style={{ marginTop: '8px' }}>You can upload documents only after a CA has been assigned and accepted your account. Please contact your admin.</p>
+              </div>
+            ) : (
+              <>
+                <h3 style={{ fontSize: '1.3rem', fontWeight: 700, marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <Upload size={22} color="var(--primary)" /> Upload Document for Review
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '16px', alignItems: 'end', marginBottom: '20px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Document Type</label>
+                    <select value={docType} onChange={e => setDocType(e.target.value)}
+                      style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--card-border)', outline: 'none', background: 'var(--bg-main)' }}>
+                      <option value="expense">Expense (Purchase)</option>
+                      <option value="sales">Sales (Income)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Upload File (Image/PDF)</label>
+                    <input type="file" accept="image/*,application/pdf" onChange={e => setUploadFile(e.target.files[0])}
+                      style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid var(--card-border)', background: 'var(--bg-main)' }} />
+                  </div>
+                  <button disabled={uploading || !uploadFile} onClick={handleUpload} className="btn btn-primary" style={{ height: '48px', minWidth: '180px' }}>
+                    {uploading ? <><Loader2 size={18} className="animate-spin" /> Scanning...</> : <><Scan size={18} /> Scan & Upload</>}
+                  </button>
+                </div>
+
+                {uploadResult && !uploadResult.error && (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ padding: '20px', background: 'var(--bg-main)', borderRadius: '12px', borderLeft: '4px solid var(--primary)' }}>
+                    <div style={{ fontWeight: 700, color: 'var(--primary-deep)', marginBottom: '12px' }}>
+                      <CheckCircle size={18} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '8px' }} />
+                      Document Scanned & Sent to CA!
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '10px' }}>
+                      {Object.entries(uploadResult.data || {}).filter(([k]) => !k.startsWith('error') && !k.startsWith('raw') && !k.startsWith('parse')).map(([k, v]) => (
+                        <div key={k} style={{ padding: '10px', background: 'white', borderRadius: '8px' }}>
+                          <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>{k}</div>
+                          <div style={{ fontSize: '0.95rem', fontWeight: 600 }}>{v || '—'}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+                {uploadResult?.error && (
+                  <div style={{ padding: '16px', background: 'rgba(230,138,138,0.1)', borderRadius: '10px', color: '#B35E5E' }}>
+                    <AlertTriangle size={16} style={{ display: 'inline', marginRight: '8px' }} /> {uploadResult.error}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ========== CHAT TAB ========== */}
+        {tab === 'chat' && (
+          <div className="card" style={{ background: 'white', height: '600px', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
+            {!isCAAssigned ? (
+              <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: 'var(--text-muted)' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <MessageSquare size={48} style={{ margin: '0 auto 16px', opacity: 0.3 }} />
+                  <div style={{ fontWeight: 600 }}>Chat Unavailable</div>
+                  <p style={{ marginTop: '8px', fontSize: '0.85rem' }}>Chat is enabled only after a CA accepts your account.</p>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div style={{ padding: '20px', borderBottom: '1px solid var(--card-border)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <MessageSquare size={18} color="var(--primary)" /> Chat with {caData?.name || 'Your CA'}
+                </div>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px', background: 'var(--bg-main)' }}>
+                  {messages.length === 0 && <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px' }}>No messages yet. Start the conversation!</div>}
+                  {messages.map((m, i) => (
+                    <div key={i} style={{ alignSelf: m.sender_role === 'client' ? 'flex-end' : 'flex-start', maxWidth: '70%' }}>
+                      <div style={{ padding: '10px 16px', borderRadius: '12px', fontSize: '0.85rem',
+                        background: m.sender_role === 'client' ? 'var(--primary)' : 'white',
+                        color: m.sender_role === 'client' ? 'white' : 'var(--text-main)',
+                        boxShadow: 'var(--shadow-soft)' }}>
+                        {m.text}
+                      </div>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '4px', textAlign: m.sender_role === 'client' ? 'right' : 'left' }}>
+                        {m.sender_name} · {new Date(m.timestamp).toLocaleTimeString()}
+                      </div>
                     </div>
                   ))}
-               </div>
-            </div>
-
-            {/* Document Assistant */}
-            <div className="card glass" style={{ background: 'white' }}>
-               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
-                <h3 style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.3rem' }}><Paperclip color="var(--primary)" /> Enterprise Vault</h3>
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <div style={{ position: 'relative' }}>
-                    <Search size={14} style={{ position: 'absolute', left: '10px', top: '10px', color: 'var(--text-muted)' }} />
-                    <input 
-                      style={{ padding: '8px 12px 8px 32px', borderRadius: '10px', border: '1px solid var(--card-border)', background: 'var(--bg-main)', fontSize: '0.8rem', width: '180px' }}
-                      placeholder="Search Vault..."
-                      value={docSearch} onChange={e => setDocSearch(e.target.value)}
-                    />
-                  </div>
-                  <button className="btn btn-ghost" style={{ padding: '8px' }}><Filter size={16} /></button>
+                  <div ref={chatEndRef} />
                 </div>
-               </div>
-               
-               <div style={{ display: 'flex', gap: '16px', marginBottom: '32px', background: 'var(--bg-main)', padding: '16px', borderRadius: '16px' }}>
-                  <input value={docName} onChange={e => setDocName(e.target.value)} style={{ flex: 1, padding: '14px', border: '1px solid var(--card-border)', outline: 'none', borderRadius: '12px', background: 'white' }} placeholder="Enterprise Document Label (e.g. Sales Registry Mar-26)" />
-                  <button onClick={handleUpload} className="btn btn-primary" style={{ height: '52px' }}><PlusCircle size={20} /> Secure Transfer</button>
-               </div>
-
-               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '16px' }}>
-                  {filteredDocs.map((d, i) => (
-                    <motion.div whileHover={{ scale: 1.02 }} key={i} className="glass" style={{ padding: '20px', borderRadius: '14px', border: '1px solid var(--card-border)', background: 'white', position: 'relative' }}>
-                       <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '12px' }}>{d.name}</div>
-                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                         <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{new Date(d.timestamp || Date.now()).toLocaleDateString()}</span>
-                         <CheckCircle size={16} color="var(--primary)" />
-                       </div>
-                    </motion.div>
-                  ))}
-                  {filteredDocs.length === 0 && <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '60px', color: 'var(--text-muted)', fontSize: '0.9rem', border: '1px dashed var(--card-border)', borderRadius: '16px' }}>Vault Index is currently synchronized. No results for query.</div>}
-               </div>
-            </div>
+                <div style={{ padding: '16px', borderTop: '1px solid var(--card-border)', display: 'flex', gap: '10px' }}>
+                  <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && sendMessage()}
+                    placeholder="Type your message..."
+                    style={{ flex: 1, padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--card-border)', outline: 'none' }} />
+                  <button onClick={sendMessage} className="btn btn-primary" style={{ padding: '10px' }}><Send size={18} /></button>
+                </div>
+              </>
+            )}
           </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
-             {/* Dynamic Insight Engine */}
-             <div className="card glass" style={{ background: 'var(--primary)', color: 'white', border: 'none', backgroundImage: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-deep) 100%)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', fontWeight: '700' }}>
-                   <Zap size={20} /> ARVIK Intelligence
-                </div>
-                <p style={{ fontSize: '1rem', lineHeight: '1.6', marginBottom: '20px' }}>
-                  Detected <span style={{ fontWeight: 800 }}>14 unbilled ledger entries</span>. Processing now will optimize your tax liability by ₹2.4L.
-                </p>
-                <button className="btn" style={{ width: '100%', background: 'white', color: 'var(--primary-deep)', border: 'none' }}>Optimize Performance</button>
-             </div>
-
-             {/* Personal Expert Channel */}
-             <ChatBox clientId={clientData.id} advisorName={assignedCA?.name} />
-
-             {/* Regional Filing Cycle */}
-             <MiniCalendar complianceDates={complianceDates} />
-
-             {/* Risk & Safety Channel */}
-             <div className="card glass" style={{ borderColor: '#E68A8A', background: 'rgba(230, 138, 138, 0.05)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#B35E5E', fontWeight: '700', marginBottom: '16px' }}>
-                   <AlertCircle size={20} /> Security & Risk Notifications
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                   <div style={{ fontSize: '0.85rem', color: 'var(--text-main)', borderLeft: '3px solid #E68A8A', paddingLeft: '12px' }}>
-                      <div style={{ fontWeight: 700 }}>Critical: TDS Q4 filing</div>
-                      <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '3px' }}>Filing window closes in 48 hours.</p>
-                   </div>
-                   <div style={{ fontSize: '0.85rem', color: 'var(--text-main)', borderLeft: '3px solid var(--highlight)', paddingLeft: '12px' }}>
-                      <div style={{ fontWeight: 700 }}>Invoice Gap Detected</div>
-                      <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '3px' }}>2 purchase entries require GSTR-2B sync.</p>
-                   </div>
-                </div>
-             </div>
-          </div>
-        </section>
+        )}
       </motion.div>
-      <footer style={{ marginTop: '80px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.75rem', paddingBottom: '40px' }}>
-         SECURE ENTERPRISE LAYER v2.4 | AES-256 ENCRYPTED | GDPR COMPLIANT
-      </footer>
     </div>
   )
 }

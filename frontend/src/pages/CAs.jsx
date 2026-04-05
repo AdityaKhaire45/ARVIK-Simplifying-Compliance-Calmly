@@ -1,137 +1,127 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Plus, Search, Filter, Edit, Trash, X, Check, UserPlus, Mail } from 'lucide-react'
-import { db, ref, push, set, onValue, off } from '../firebase'
+import { ShieldCheck, Mail, Users, FileCheck, Clock, AlertTriangle, CheckCircle, Trash2 } from 'lucide-react'
+import { db, ref, onValue, remove } from '../firebase'
 
-const AddCAModal = ({ isOpen, onClose }) => {
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    specialization: 'GST'
-  })
-  const [loading, setLoading] = useState(false)
-
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    setLoading(true)
-    try {
-      const caRef = push(ref(db, "cas"))
-      await set(caRef, {
-        ...formData,
-        id: Date.now(), 
-        created_at: new Date().toISOString()
-      })
-      setFormData({ name: '', email: '', specialization: 'GST' })
-      onClose()
-    } catch (err) {
-      console.error(err)
-    }
-    setLoading(false)
-  }
-
-  if (!isOpen) return null
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.1)', display: 'grid', placeItems: 'center', zIndex: 1000, backdropFilter: 'blur(8px)' }}>
-      <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="card glass" style={{ width: '100%', maxWidth: '450px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px', alignItems: 'center' }}>
-          <h2 style={{ fontSize: '1.4rem' }}>Onboard Expert</h2>
-          <button onClick={onClose} className="btn" style={{ padding: '4px', background: 'transparent' }}><X size={20} /></button>
-        </div>
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Professional Name</label>
-            <input required type="text" style={{ width: '100%', padding: '12px', border: '1px solid var(--card-border)', outline: 'none', borderRadius: '10px', background: 'white' }} 
-              placeholder="e.g. CA Rahul Sharma" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-          </div>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Email Address</label>
-            <input required type="email" style={{ width: '100%', padding: '12px', border: '1px solid var(--card-border)', outline: 'none', borderRadius: '10px', background: 'white' }} 
-              placeholder="rahul@arvik.com" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
-          </div>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Specialization Area</label>
-            <select style={{ width: '100%', padding: '12px', border: '1px solid var(--card-border)', outline: 'none', borderRadius: '10px', background: 'white' }}
-              value={formData.specialization} onChange={e => setFormData({...formData, specialization: e.target.value})}>
-              <option value="GST">GST Compliance</option>
-              <option value="Income Tax">Income Tax</option>
-              <option value="Audit">Audit & Assurance</option>
-              <option value="Corporate">Corporate Law</option>
-            </select>
-          </div>
-          <button disabled={loading} type="submit" className="btn btn-primary" style={{ height: '48px', fontSize: '1rem', marginTop: '10px' }}>
-            {loading ? 'Processing...' : 'Onboard Partner'}
-          </button>
-        </form>
-      </motion.div>
-    </div>
-  )
-}
-
-const CAs = () => {
+const CAs = ({ role, user }) => {
   const [cas, setCas] = useState([])
-  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [clients, setClients] = useState([])
+  const [documents, setDocuments] = useState([])
+  const [alerts, setAlerts] = useState([])
 
   useEffect(() => {
-    const caRef = ref(db, "cas")
-    onValue(caRef, (snapshot) => {
-      const data = snapshot.val()
-      if (data) {
-        setCas(Object.entries(data).map(([id, val]) => ({ id, ...val })))
-      } else {
-        setCas([])
+    // CAs from users with role=ca
+    onValue(ref(db, 'users'), snap => {
+      const d = snap.val()
+      if (d) {
+        setCas(Object.entries(d).filter(([_, v]) => v.role === 'ca').map(([id, v]) => ({ uid: id, ...v })))
       }
+    })
+    onValue(ref(db, 'clients'), snap => {
+      const d = snap.val()
+      setClients(d ? Object.entries(d).map(([id, v]) => ({ id, ...v })) : [])
+    })
+    onValue(ref(db, 'documents'), snap => {
+      const d = snap.val()
+      setDocuments(d ? Object.entries(d).map(([id, v]) => ({ id, ...v })) : [])
+    })
+    onValue(ref(db, 'alerts'), snap => {
+      const d = snap.val()
+      setAlerts(d ? Object.entries(d).map(([id, v]) => ({ id, ...v })) : [])
     })
   }, [])
 
+  const terminateCA = async (caUid) => {
+    if (window.confirm('Terminate this CA? Their assigned clients will become unassigned.')) {
+      // Unassign all clients from this CA
+      for (const c of clients.filter(c => c.assigned_ca_uid === caUid)) {
+        const { update } = await import('../firebase')
+        await update(ref(db, `clients/${c.id}`), { assigned_ca_uid: null, ca_status: 'none' })
+      }
+      await remove(ref(db, `users/${caUid}`))
+    }
+  }
+
   return (
     <div style={{ maxWidth: '1200px' }}>
-      <AddCAModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
-      
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px' }}>
-          <div>
-            <h1 style={{ fontSize: '2.5rem', marginBottom: '8px' }}>Expert Directory</h1>
-            <p style={{ color: 'var(--text-muted)' }}>Managing the elite professional network of ARVIK.</p>
-          </div>
-          <button className="btn btn-primary" onClick={() => setIsModalOpen(true)}>
-            <UserPlus size={18} /> New Expert Onboarding
-          </button>
+        <header style={{ marginBottom: '40px' }}>
+          <h1 style={{ fontSize: '2.5rem', fontWeight: 600, marginBottom: '8px' }}>CA Directory</h1>
+          <p style={{ color: 'var(--text-muted)' }}>Monitor CA performance, client load, and deadline compliance.</p>
+          <p style={{ color: 'var(--primary)', fontSize: '0.85rem', marginTop: '8px' }}>
+            CAs are auto-registered when they create an account with role "Expert (CA)".
+          </p>
         </header>
 
-        <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '24px' }}>
-          {cas.map((ca, i) => (
-             <div key={i} className="card glass" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: '24px' }}>
+          {cas.map(ca => {
+            const myClients = clients.filter(c => c.assigned_ca_uid === ca.uid)
+            const acceptedClients = myClients.filter(c => c.ca_status === 'accepted')
+            const pendingClients = myClients.filter(c => c.ca_status === 'pending')
+            const myDocs = documents.filter(d => myClients.some(c => c.id === d.client_uid))
+            const pendingDocs = myDocs.filter(d => d.status === 'pending').length
+            const approvedDocs = myDocs.filter(d => d.status === 'approved').length
+            const rejectedDocs = myDocs.filter(d => d.status === 'rejected').length
+            const hasUrgent = alerts.some(a => a.target_uid === ca.uid && !a.read)
+            const completedClients = myClients.filter(c => c.work_status === 'completed').length
+
+            return (
+              <div key={ca.uid} className="card" style={{ background: 'white', display: 'flex', flexDirection: 'column', gap: '20px', borderLeft: hasUrgent ? '4px solid #E68A8A' : '4px solid var(--primary)' }}>
+                {/* CA Header */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                  <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'var(--bg-accent)', display: 'grid', placeItems: 'center', color: 'white', fontSize: '1.4rem', fontWeight: 600 }}>{ca.name[0]}</div>
-                  <div>
-                    <h3 style={{ fontSize: '1.25rem', marginBottom: '4px' }}>{ca.name}</h3>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                  <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'var(--primary)', display: 'grid', placeItems: 'center', color: 'white', fontSize: '1.4rem', fontWeight: 700 }}>{ca.name?.[0]}</div>
+                  <div style={{ flex: 1 }}>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '2px' }}>{ca.name}</h3>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
                       <Mail size={12} /> {ca.email}
                     </div>
                   </div>
+                  {hasUrgent && <AlertTriangle size={20} color="#E68A8A" />}
                 </div>
 
-                <div style={{ borderTop: '1px solid var(--card-border)', paddingTop: '20px' }}>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 600, textTransform: 'uppercase' }}>Focus Expertise</div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span className="badge badge-success">{ca.specialization}</span>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--primary-deep)', fontWeight: 600 }}>12 Active Clients</div>
+                {/* Performance Grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', padding: '16px', background: 'var(--bg-main)', borderRadius: '12px' }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary-deep)' }}>{acceptedClients.length}</div>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Clients</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#B7C06E' }}>{pendingDocs}</div>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Pending</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary)' }}>{approvedDocs}</div>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Approved</div>
                   </div>
                 </div>
 
-                <div style={{ marginTop: 'auto', display: 'flex', gap: '10px' }}>
-                  <button className="btn btn-ghost" style={{ flex: 1, fontSize: '0.8rem' }}>Expert Profile</button>
-                  <button className="btn btn-ghost" style={{ padding: '8px' }}><Edit size={16} /></button>
+                {/* Status Info */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  <span>Completed: <strong>{completedClients}/{acceptedClients.length}</strong></span>
+                  <span>Pending Requests: <strong style={{ color: pendingClients.length > 0 ? '#B7C06E' : 'var(--text-muted)' }}>{pendingClients.length}</strong></span>
                 </div>
-             </div>
-          ))}
+
+                {/* Upcoming Due Dates placeholder */}
+                {hasUrgent && (
+                  <div style={{ padding: '10px 14px', background: 'rgba(230,138,138,0.08)', borderRadius: '8px', fontSize: '0.8rem', color: '#B35E5E', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <AlertTriangle size={14} /> Has unread deadline alerts
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div style={{ display: 'flex', gap: '10px', marginTop: 'auto' }}>
+                  <button className="btn btn-ghost" style={{ flex: 1, fontSize: '0.8rem' }}>View Details</button>
+                  <button onClick={() => terminateCA(ca.uid)} className="btn btn-ghost" style={{ padding: '8px', color: '#B35E5E' }} title="Terminate CA"><Trash2 size={16} /></button>
+                </div>
+              </div>
+            )
+          })}
           {cas.length === 0 && (
-            <div className="card glass" style={{ gridColumn: '1 / -1', padding: '100px', textAlign: 'center', color: 'var(--text-muted)' }}>
-              Initial Expert network is empty. Start onboarding to build your team.
+            <div className="card" style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '100px', color: 'var(--text-muted)' }}>
+              No CAs registered yet. A CA will appear here when they create an account with the "Expert (CA)" role.
             </div>
           )}
-        </section>
+        </div>
       </motion.div>
     </div>
   )

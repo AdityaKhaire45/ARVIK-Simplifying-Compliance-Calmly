@@ -17,38 +17,32 @@ const useShortcuts = (actions) => {
       // Ensure we don't trigger if inside an input/textarea UNLESS it's the specific search shortcut
       const isInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
       
-      // Ctrl + N (Add Client)
-      if (ctrlKey && lowerKey === 'n') {
+      // Alt + N (Add Client)
+      if (altKey && lowerKey === 'n') {
         event.preventDefault();
         actionsRef.current.addClient?.();
       }
 
-      // Ctrl + K (Search Client)
-      if (ctrlKey && lowerKey === 'k') {
+      // Alt + F (Search Client)
+      if (altKey && lowerKey === 'f') {
         event.preventDefault();
         actionsRef.current.searchClient?.();
       }
 
-      // Ctrl + S (Save Form) - Allowed in inputs
-      if (ctrlKey && lowerKey === 's') {
+      // Alt + Enter (Save Form) - Allowed in inputs
+      if (altKey && lowerKey === 'enter') {
         event.preventDefault();
         actionsRef.current.saveForm?.();
       }
 
-      // Ctrl + D (Open Dashboard)
-      if (ctrlKey && lowerKey === 'd') {
+      // Alt + D (Open Dashboard)
+      if (altKey && lowerKey === 'd') {
         event.preventDefault();
         actionsRef.current.openDashboard?.();
       }
 
-      // Alt + Arrow keys (Switch Tabs)
-      if (altKey && (key === 'ArrowRight' || key === 'ArrowLeft')) {
-        event.preventDefault();
-        actionsRef.current.switchTabs?.(key === 'ArrowRight' ? 'next' : 'prev');
-      }
-
-      // Ctrl + A (Alert View)
-      if (ctrlKey && lowerKey === 'a') {
+      // Alt + A (Alert View)
+      if (altKey && lowerKey === 'a') {
         event.preventDefault();
         actionsRef.current.openAlerts?.();
       }

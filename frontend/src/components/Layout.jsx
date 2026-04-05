@@ -56,7 +56,7 @@ const Layout = ({ children, role, user }) => {
             <input 
               id="global-search"
               type="text" 
-              placeholder="Workspace Index (Ctrl+K)" 
+              placeholder="Workspace Index (Alt+F)" 
               style={{ background: 'transparent', border: 'none', color: 'var(--text-main)', fontSize: '0.9rem', width: '100%', outline: 'none' }} 
             />
           </div>

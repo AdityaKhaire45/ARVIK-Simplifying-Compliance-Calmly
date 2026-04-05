@@ -1,0 +1,36 @@
+{
+  "rules": {
+    "cas": {
+      ".read": "auth != null",
+      ".write": "false" 
+    },
+    "users": {
+        "$uid": {
+          ".read": "$uid === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'admin'",
+          ".write": "$uid === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'admin'"
+        }
+    },
+    "clients": {
+        ".read": "auth != null",
+        ".write": "root.child('users').child(auth.uid).child('role').val() === 'admin'"
+    },
+    "documents": {
+      "$docId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "saldo": {
+      "$clientId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "alerts": {
+      "$alertId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    }
+  }
+}
