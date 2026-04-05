@@ -483,3 +483,28 @@ def delete_alert(alert_id: str):
 def startup():
     print("Backend initialized.")
 
+@app.get("/test-gemini")
+def test_gemini():
+    import requests
+    import os
+
+    api_key = os.getenv("GEMINI_API_KEY")
+
+    if not api_key:
+        return {"error": "API key not found"}
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
+
+    payload = {
+        "contents": [{
+            "parts": [{"text": "Say hello from ARVIK AI"}]
+        }]
+    }
+
+    res = requests.post(url, json=payload)
+
+    return {
+        "status_code": res.status_code,
+        "data": res.json()
+    }
+
