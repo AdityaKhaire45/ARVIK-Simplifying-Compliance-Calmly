@@ -1,11 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { db, ref, onValue, push, set } from '../firebase'
-import { 
-  Users, ShieldCheck, FileCheck, AlertTriangle, TrendingUp, 
-  Clock, CheckCircle, XCircle, BarChart3, Bell, UserPlus, ArrowRight
-} from 'lucide-react'
+import { Users, ShieldCheck, FileCheck, AlertTriangle, TrendingUp, Clock, CheckCircle, XCircle, BarChart3, Bell, UserPlus, ArrowRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { API_BASE } from '../config'
 
 const Dashboard = ({ role, user }) => {
   const [clients, setClients] = useState([])
@@ -14,30 +11,40 @@ const Dashboard = ({ role, user }) => {
   const [alerts, setAlerts] = useState([])
   const navigate = useNavigate()
 
-  useEffect(() => {
-    // Clients
-    onValue(ref(db, 'clients'), snap => {
-      const d = snap.val()
-      setClients(d ? Object.entries(d).map(([id, v]) => ({ id, ...v })) : [])
-    })
-    // CAs — from users with role=ca
-    onValue(ref(db, 'users'), snap => {
-      const d = snap.val()
-      if (d) {
-        const caList = Object.entries(d).filter(([_, v]) => v.role === 'ca').map(([id, v]) => ({ uid: id, ...v }))
+  const refreshData = async () => {
+    try {
+      // 1. Clients
+      const cRes = await fetch(`${API_BASE}/clients`)
+      const cData = await cRes.json()
+      setClients(cData ? Object.entries(cData).map(([id, v]) => ({ id, ...v })) : [])
+
+      // 2. CAs - Fetch from users (Need to add /users endpoint or filter from clients)
+      // For now, let's assume we can get users. I'll add /users to backend later if missing.
+      const uRes = await fetch(`${API_BASE}/users`)
+      const uData = await uRes.json()
+      if (uData) {
+        const caList = Object.entries(uData).filter(([_, v]) => v.role === 'ca').map(([id, v]) => ({ uid: id, ...v }))
         setCas(caList)
       }
-    })
-    // Documents
-    onValue(ref(db, 'documents'), snap => {
-      const d = snap.val()
-      setDocuments(d ? Object.entries(d).map(([id, v]) => ({ id, ...v })) : [])
-    })
-    // Alerts
-    onValue(ref(db, 'alerts'), snap => {
-      const d = snap.val()
-      setAlerts(d ? Object.entries(d).map(([id, v]) => ({ id, ...v })) : [])
-    })
+
+      // 3. Documents
+      const dRes = await fetch(`${API_BASE}/documents`)
+      const dData = await dRes.json()
+      setDocuments(dData ? Object.entries(dData).map(([id, v]) => ({ id, ...v })) : [])
+
+      // 4. Alerts
+      const aRes = await fetch(`${API_BASE}/alerts`)
+      const aData = await aRes.json()
+      setAlerts(aData ? Object.entries(aData).map(([id, v]) => ({ id, ...v })) : [])
+    } catch (err) {
+      console.error("Dashboard refresh error:", err)
+    }
+  }
+
+  useEffect(() => {
+    refreshData()
+    const interval = setInterval(refreshData, 5000)
+    return () => clearInterval(interval)
   }, [])
 
   const totalClients = clients.length

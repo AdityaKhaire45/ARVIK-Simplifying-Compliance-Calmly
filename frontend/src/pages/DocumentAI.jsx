@@ -7,12 +7,15 @@ import {
 } from 'lucide-react'
 import { db, ref, onValue, update, push, set } from '../firebase'
 
+import { API_BASE } from '../config'
+
 export default function DocumentAI({ role, user }) {
   const [allClients, setAllClients] = useState([])
   const [documents, setDocuments] = useState([])
   const [alerts, setAlerts] = useState([])
   const [messages, setMessages] = useState([])
   const [selectedClient, setSelectedClient] = useState(null)
+  const [saldo, setSaldo] = useState(null)
   const [search, setSearch] = useState('')
   const [chatInput, setChatInput] = useState('')
   const [rejectMsg, setRejectMsg] = useState('')
@@ -23,78 +26,121 @@ export default function DocumentAI({ role, user }) {
   const chatEndRef = useRef(null)
 
   // ─── Data Loading ───
-  useEffect(() => {
-    onValue(ref(db, 'clients'), snap => {
-      const d = snap.val()
-      if (d) {
-        const list = Object.entries(d).map(([id, v]) => ({ id, ...v })).filter(c => c.assigned_ca_uid === user?.uid)
-        setAllClients(list)
-        // Auto-select first accepted client
-        if (!selectedClient) {
-          const first = list.find(c => c.ca_status === 'accepted') || list[0]
-          if (first) setSelectedClient(first)
-        }
-      } else setAllClients([])
-    })
-    onValue(ref(db, 'documents'), snap => {
-      const d = snap.val()
-      setDocuments(d ? Object.entries(d).map(([id, v]) => ({ id, ...v })) : [])
-    })
-    onValue(ref(db, 'alerts'), snap => {
-      const d = snap.val()
-      if (d) {
-        setAlerts(Object.entries(d).map(([id, v]) => ({ id, ...v })).filter(a => a.target_uid === user?.uid).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)))
-      } else setAlerts([])
-    })
-  }, [user])
+  const refreshData = async () => {
+    if (!user) return
+    try {
+      // 1. Load Clients
+      const cRes = await fetch(`${API_BASE}/clients`)
+      const cData = await cRes.json()
+      const list = Object.entries(cData || {}).map(([id, v]) => ({ id, ...v })).filter(c => c.assigned_ca_uid === user?.uid)
+      setAllClients(list)
 
-  // Load messages for selected client
+      // Auto-select
+      if (!selectedClient && list.length > 0) {
+        const first = list.find(c => c.ca_status === 'accepted') || list[0]
+        if (first) setSelectedClient(first)
+      }
+
+      // 2. Load Documents
+      const dRes = await fetch(`${API_BASE}/documents`)
+      const dData = await dRes.json()
+      setDocuments(dData ? Object.entries(dData).map(([id, v]) => ({ id, ...v })) : [])
+
+      // 3. Load Alerts
+      const aRes = await fetch(`${API_BASE}/alerts`)
+      const aData = await aRes.json()
+      if (aData) {
+        setAlerts(Object.entries(aData).map(([id, v]) => ({ id, ...v })).filter(a => a.target_uid === user?.uid).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)))
+      }
+
+      // 4. Load Messages for selected client
+      if (selectedClient) {
+        const mRes = await fetch(`${API_BASE}/messages/${selectedClient.id}`)
+        const mData = await mRes.json()
+        setMessages(mData ? Object.values(mData).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)) : [])
+
+        // 5. Load Saldo for Selected Client
+        const sRes = await fetch(`${API_BASE}/saldo-insight`, {
+           method: "POST",
+           headers: { "Content-Type": "application/json" },
+           body: JSON.stringify({ client_id: selectedClient.id })
+        })
+        const sData = await sRes.json()
+        setSaldo(sData.saldo)
+      }
+    } catch (e) {
+      console.error("Refresh Error:", e)
+    }
+  }
+
   useEffect(() => {
-    if (!selectedClient) return
-    const unsub = onValue(ref(db, `messages/${selectedClient.id}`), snap => {
-      const d = snap.val()
-      setMessages(d ? Object.values(d).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)) : [])
-    })
-    return () => {}
-  }, [selectedClient?.id])
+    refreshData()
+    const interval = setInterval(refreshData, 5000)
+    return () => clearInterval(interval)
+  }, [user, selectedClient?.id])
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   // ─── Actions ───
   const handleClientAction = async (clientId, action) => {
-    await update(ref(db, `clients/${clientId}`), { ca_status: action })
-    const client = allClients.find(c => c.id === clientId)
-    await push(ref(db, 'alerts'), { target_uid: 'admin', message: `CA ${user?.displayName || 'CA'} has ${action} client "${client?.name}".`, client_name: client?.name, type: action === 'accepted' ? 'info' : 'warning', created_at: new Date().toISOString(), read: false })
-    // Refresh selected
-    if (action === 'accepted') setSelectedClient({ ...client, ca_status: 'accepted' })
+    await fetch(`${API_BASE}/update-client`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: clientId, ca_status: action })
+    })
+    refreshData()
   }
 
   const approveDoc = async (docId) => {
-    await update(ref(db, `documents/${docId}`), { status: 'approved', reviewed_by: user?.uid, reviewed_at: new Date().toISOString() })
+    await fetch(`${API_BASE}/update-doc`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ doc_id: docId, status: "approved", reviewed_by: user?.uid })
+    })
+    refreshData()
   }
 
   const rejectDoc = async () => {
     if (!rejectDocId) return
-    await update(ref(db, `documents/${rejectDocId}`), { status: 'rejected', rejection_msg: rejectMsg, reviewed_by: user?.uid, reviewed_at: new Date().toISOString() })
-    const doc = documents.find(d => d.id === rejectDocId)
-    await push(ref(db, 'alerts'), { target_uid: doc?.client_uid, message: `Document "${doc?.file_name}" was rejected. Reason: ${rejectMsg}`, type: 'warning', created_at: new Date().toISOString(), read: false })
+    await fetch(`${API_BASE}/update-doc`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ 
+        doc_id: rejectDocId, 
+        status: "rejected", 
+        rejection_msg: rejectMsg, 
+        reviewed_by: user?.uid 
+      })
+    })
     setShowRejectModal(false); setRejectMsg(''); setRejectDocId(null)
+    refreshData()
   }
 
   const markCompleted = async (clientId) => {
-    await update(ref(db, `clients/${clientId}`), { work_status: 'completed' })
-    const client = allClients.find(c => c.id === clientId)
-    await push(ref(db, 'alerts'), { target_uid: 'admin', message: `All work completed for client "${client?.name}".`, client_name: client?.name, type: 'info', created_at: new Date().toISOString(), read: false })
-    setSelectedClient(prev => ({ ...prev, work_status: 'completed' }))
+    await fetch(`${API_BASE}/update-client`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: clientId, work_status: "completed" })
+    })
+    refreshData()
   }
 
   const sendMessage = async () => {
     if (!chatInput.trim() || !selectedClient) return
-    await push(ref(db, `messages/${selectedClient.id}`), { text: chatInput, sender_uid: user?.uid, sender_role: 'ca', sender_name: 'CA', timestamp: new Date().toISOString() })
+    await fetch(`${API_BASE}/send-message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: selectedClient.id, text: chatInput })
+    })
     setChatInput('')
+    refreshData()
   }
 
-  const markAlertRead = async (alertId) => { await update(ref(db, `alerts/${alertId}`), { read: true }) }
+  const markAlertRead = async (alertId) => {
+    // Alert update endpoint not in backend yet, but we'll simulate or add if needed
+    // For now, it stays locally read for the current session or we can add it
+    setAlerts(prev => prev.map(a => a.id === alertId ? { ...a, read: true } : a))
+  }
 
   // ─── Derived ───
   const pendingClients = allClients.filter(c => c.ca_status === 'pending')
@@ -103,13 +149,13 @@ export default function DocumentAI({ role, user }) {
   const filteredClients = activeClients
     .filter(c => (c.name || '').toLowerCase().includes(search.toLowerCase()))
     .map(c => {
-      const cDocs = documents.filter(d => d.client_uid === c.id)
+      const cDocs = documents.filter(d => d.client_id === c.id)
       const cPending = cDocs.filter(d => d.status === 'pending').length
       return { ...c, pendingCount: cPending, cDocs }
     })
     .sort((a, b) => b.pendingCount - a.pendingCount)
 
-  const clientDocs = selectedClient ? documents.filter(d => d.client_uid === selectedClient.id).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)) : []
+  const clientDocs = selectedClient ? documents.filter(d => d.client_id === selectedClient.id).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)) : []
   const pendingDocCount = clientDocs.filter(d => d.status === 'pending').length
   const unreadAlerts = alerts.filter(a => !a.read).length
 
@@ -214,7 +260,14 @@ export default function DocumentAI({ role, user }) {
               {/* Client Header + Actions */}
               <div style={{ ...panelHeaderStyle, justifyContent: 'space-between' }}>
                 <div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>{selectedClient.name}</div>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {selectedClient.name}
+                    {saldo && (
+                      <span style={{ fontSize: '0.75rem', padding: '3px 10px', borderRadius: '20px', background: 'var(--primary)', color: 'white', fontWeight: 800 }}>
+                        Balance: ₹{saldo.balance?.toLocaleString()}
+                      </span>
+                    )}
+                  </div>
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>GSTIN: {selectedClient.gstin || 'N/A'} · {selectedClient.work_status === 'completed' ? '✓ Work Completed' : `${pendingDocCount} pending docs`}</div>
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>

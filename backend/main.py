@@ -339,6 +339,147 @@ def manual_trigger():
     return {"message": "Demo alerts triggered successfully"}
 
 @app.get("/")
-def read_root():
-    return {"status": "ARVIK Master Backend Alive", "gemini_enabled": bool(GEMINI_API_KEY)}
+def home():
+    return {"message": "Backend running"}
+
+# ============================================================
+# 3. DIRECT FIREBASE API PROXIES (New Endpoints)
+# ============================================================
+
+@app.get("/clients")
+def get_clients():
+    res = http_requests.get(f"{FB_DB_URL}/clients.json")
+    return res.json() if res.status_code == 200 and res.json() else {}
+
+@app.get("/documents")
+def get_documents(client_id: Optional[str] = None):
+    res = http_requests.get(f"{FB_DB_URL}/documents.json")
+    data = res.json() if res.status_code == 200 and res.json() else {}
+    if client_id:
+        # Filter by client_id (which is saved during /upload)
+        return {k: v for k, v in data.items() if v.get("client_id") == client_id}
+    return data
+
+@app.get("/alerts")
+def get_alerts():
+    res = http_requests.get(f"{FB_DB_URL}/alerts.json")
+    return res.json() if res.status_code == 200 and res.json() else {}
+
+@app.get("/messages/{client_id}")
+def get_messages(client_id: str):
+    res = http_requests.get(f"{FB_DB_URL}/messages/{client_id}.json")
+    return res.json() if res.status_code == 200 and res.json() else {}
+
+@app.get("/users")
+def get_users():
+    res = http_requests.get(f"{FB_DB_URL}/users.json")
+    return res.json() if res.status_code == 200 and res.json() else {}
+
+class ChatMessage(BaseModel):
+    client_id: str
+    text: str
+
+@app.post("/send-message")
+def send_message(msg: ChatMessage):
+    payload = {
+        "text": msg.text,
+        "sender_role": "client",
+        "sender_name": "Client",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    res = http_requests.post(f"{FB_DB_URL}/messages/{msg.client_id}.json", json=payload)
+    return res.json()
+class DocUpdate(BaseModel):
+    doc_id: str
+    status: str
+    rejection_msg: Optional[str] = None
+    reviewed_by: Optional[str] = None
+
+@app.post("/update-doc")
+def update_doc(update: DocUpdate):
+    # Get doc first
+    res = http_requests.get(f"{FB_DB_URL}/documents/{update.doc_id}.json")
+    doc = res.json()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    doc["status"] = update.status
+    if update.rejection_msg:
+        doc["rejection_msg"] = update.rejection_msg
+    doc["reviewed_by"] = update.reviewed_by
+    doc["reviewed_at"] = datetime.utcnow().isoformat()
+    
+    http_requests.put(f"{FB_DB_URL}/documents/{update.doc_id}.json", json=doc)
+    
+    # If rejected, send alert to client
+    if update.status == "rejected":
+        alert = {
+            "target_uid": doc.get("client_id"),
+            "message": f"Document \"{doc.get('file_name', 'Unnamed Document')}\" was rejected. Reason: {update.rejection_msg}",
+            "type": "warning",
+            "created_at": datetime.utcnow().isoformat(),
+            "read": False
+        }
+        http_requests.post(f"{FB_DB_URL}/alerts.json", json=alert)
+        
+    return {"message": f"Document {update.doc_id} updated to {update.status}"}
+
+class ClientUpdate(BaseModel):
+    client_id: str
+    ca_status: Optional[str] = None
+    work_status: Optional[str] = None
+    ca_uid: Optional[str] = None
+
+@app.post("/update-client")
+def update_client(update: ClientUpdate):
+    res = http_requests.get(f"{FB_DB_URL}/clients/{update.client_id}.json")
+    client = res.json()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    
+    if update.ca_status:
+        client["ca_status"] = update.ca_status
+    if update.work_status:
+        client["work_status"] = update.work_status
+    
+    http_requests.put(f"{FB_DB_URL}/clients/{update.client_id}.json", json=client)
+    
+    # Send alert for status change
+    if update.ca_status:
+        alert = {
+            "target_uid": "admin",
+            "message": f"Client \"{client.get('name')}\" status updated to {update.ca_status}.",
+            "client_name": client.get('name'),
+            "type": "info",
+            "created_at": datetime.utcnow().isoformat(),
+            "read": False
+        }
+        http_requests.post(f"{FB_DB_URL}/alerts.json", json=alert)
+        
+    return {"message": f"Client {update.client_id} updated"}
+
+class AlertUpdate(BaseModel):
+    read: bool
+
+@app.patch("/alerts/{alert_id}")
+def update_alert(alert_id: str, update: AlertUpdate):
+    res = http_requests.get(f"{FB_DB_URL}/alerts/{alert_id}.json")
+    alert = res.json()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    
+    alert["read"] = update.read
+    http_requests.put(f"{FB_DB_URL}/alerts/{alert_id}.json", json=alert)
+    return {"message": "Alert updated"}
+
+@app.delete("/alerts/{alert_id}")
+def delete_alert(alert_id: str):
+    res = http_requests.delete(f"{FB_DB_URL}/alerts/{alert_id}.json")
+    if res.status_code != 200:
+        raise HTTPException(status_code=res.status_code, detail="Could not delete alert")
+    return {"message": "Alert deleted"}
+
+@app.on_event("startup")
+def startup():
+    print("Backend initialized.")
 

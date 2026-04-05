@@ -1,17 +1,16 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Bell, AlertTriangle, CheckCircle, Clock, Trash2 } from 'lucide-react'
-import { db, ref, onValue, update, remove } from '../firebase'
+import { API_BASE } from '../config'
 
 const Alerts = ({ role, user }) => {
   const [alerts, setAlerts] = useState([])
 
-  useEffect(() => {
-    const alertRef = ref(db, 'alerts')
-    onValue(alertRef, (snap) => {
-      const data = snap.val()
-      if (!data) { setAlerts([]); return }
-      const list = Object.entries(data)
+  const fetchAlerts = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/alerts`)
+      const data = await res.json()
+      const list = Object.entries(data || {})
         .map(([id, v]) => ({ id, ...v }))
         .filter(a => {
           if (role === 'admin') return true
@@ -19,15 +18,29 @@ const Alerts = ({ role, user }) => {
         })
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
       setAlerts(list)
-    })
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  useEffect(() => {
+    fetchAlerts()
+    const interval = setInterval(fetchAlerts, 5000)
+    return () => clearInterval(interval)
   }, [user, role])
 
   const markRead = async (alertId) => {
-    await update(ref(db, `alerts/${alertId}`), { read: true })
+    await fetch(`${API_BASE}/alerts/${alertId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ read: true })
+    })
+    fetchAlerts()
   }
 
   const deleteAlert = async (alertId) => {
-    await remove(ref(db, `alerts/${alertId}`))
+    await fetch(`${API_BASE}/alerts/${alertId}`, { method: 'DELETE' })
+    fetchAlerts()
   }
 
   return (
@@ -48,7 +61,7 @@ const Alerts = ({ role, user }) => {
             </div>
           )}
           {alerts.map((a) => (
-            <motion.div key={a.id} whileHover={{ x: 4 }} className="card" style={{ 
+            <motion.div key={a.id} whileHover={{ x: 4 }} className="card" style={{
               display: 'flex', alignItems: 'center', gap: '16px', padding: '20px 24px',
               background: a.read ? 'rgba(255,255,255,0.5)' : 'white',
               borderLeft: `4px solid ${a.type === 'warning' ? '#E68A8A' : a.type === 'info' ? 'var(--primary)' : '#B7C06E'}`,

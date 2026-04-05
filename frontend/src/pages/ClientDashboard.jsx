@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { db, ref, onValue, push, set, update, storage, storageRef, uploadBytes, getDownloadURL } from '../firebase'
 import { 
   Upload, CheckCircle, Clock, XCircle, MessageSquare, Send, 
-  FileText, AlertTriangle, Shield, Scan, Loader2, Bell
+  FileText, AlertTriangle, Shield, Scan, Loader2, Bell, TrendingUp, Wallet
 } from 'lucide-react'
+import { API_BASE } from '../config'
 
 const ClientDashboard = ({ user, initialTab }) => {
   const [clientData, setClientData] = useState(null)
@@ -12,6 +12,8 @@ const ClientDashboard = ({ user, initialTab }) => {
   const [documents, setDocuments] = useState([])
   const [alerts, setAlerts] = useState([])
   const [messages, setMessages] = useState([])
+  const [saldo, setSaldo] = useState(null)
+  const [insight, setInsight] = useState('')
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState(initialTab || 'dashboard')
 
@@ -25,56 +27,67 @@ const ClientDashboard = ({ user, initialTab }) => {
   const [chatInput, setChatInput] = useState('')
   const chatEndRef = useRef(null)
 
-  useEffect(() => {
+  const refreshDashboard = async () => {
     if (!user) return
-    // Find client profile linked to this user
-    onValue(ref(db, 'clients'), snap => {
-      const d = snap.val()
-      if (d) {
-        // Find client where user_uid matches, or first client for demo
-        const entries = Object.entries(d)
-        const myClient = entries.find(([_, v]) => v.user_uid === user.uid)
-        if (myClient) {
-          setClientData({ id: myClient[0], ...myClient[1] })
-        } else if (entries.length > 0) {
-          // Fallback: first client for demo purposes
-          setClientData({ id: entries[0][0], ...entries[0][1] })
-        }
+    try {
+      // 1. Get Clients to find current user's profile
+      const clientsRes = await fetch(`${API_BASE}/clients`)
+      const clientsData = await clientsRes.json()
+      
+      const entries = Object.entries(clientsData || {})
+      const myClientEntry = entries.find(([_, v]) => v.user_uid === user.uid)
+      let foundClient = null
+      if (myClientEntry) {
+        foundClient = { id: myClientEntry[0], ...myClientEntry[1] }
+      } else if (entries.length > 0) {
+        foundClient = { id: entries[0][0], ...entries[0][1] }
+      }
+
+      if (foundClient) {
+        setClientData(foundClient)
+
+        // 2. Fetch Documents
+        const docsRes = await fetch(`${API_BASE}/documents?client_id=${foundClient.id}`)
+        const docsData = await docsRes.json()
+        setDocuments(Object.entries(docsData || {}).map(([id, v]) => ({ id, ...v })).sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp)))
+
+        // 3. Fetch Alerts
+        const alertsRes = await fetch(`${API_BASE}/alerts`)
+        const alertsData = await alertsRes.json()
+        setAlerts(Object.entries(alertsData || {}).map(([id, v]) => ({ id, ...v }))
+          .filter(a => a.target_uid === user?.uid || a.target_uid === foundClient.id)
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)))
+
+        // 4. Fetch Messages
+        const msgRes = await fetch(`${API_BASE}/messages/${foundClient.id}`)
+        const msgData = await msgRes.json()
+        setMessages(Object.values(msgData || {}).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)))
+
+        // 5. Fetch Saldo Insight
+        const insightRes = await fetch(`${API_BASE}/saldo-insight`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ client_id: foundClient.id })
+        })
+        const insightData = await insightRes.json()
+        setSaldo(insightData.saldo)
+        setInsight(insightData.insight)
       }
       setLoading(false)
-    })
-  }, [user])
+    } catch (e) {
+      console.error("Dashboard error:", e)
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    if (!clientData) return
-    // Get assigned CA info
-    if (clientData.assigned_ca_uid) {
-      onValue(ref(db, `users/${clientData.assigned_ca_uid}`), snap => {
-        setCaData(snap.val())
-      })
-    }
-    // Get documents for this client
-    onValue(ref(db, 'documents'), snap => {
-      const d = snap.val()
-      if (d) {
-        const myDocs = Object.entries(d).map(([id, v]) => ({ id, ...v })).filter(doc => doc.client_uid === clientData.id)
-        setDocuments(myDocs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)))
-      }
-    })
-    // Get alerts
-    onValue(ref(db, 'alerts'), snap => {
-      const d = snap.val()
-      if (d) {
-        setAlerts(Object.entries(d).map(([id, v]) => ({ id, ...v })).filter(a => a.target_uid === user?.uid || a.target_uid === clientData.id).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)))
-      }
-    })
-    // Get messages
-    onValue(ref(db, `messages/${clientData.id}`), snap => {
-      const d = snap.val()
-      if (d) setMessages(Object.values(d).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)))
-      else setMessages([])
-    })
-  }, [clientData])
+    refreshDashboard();
+    const interval = setInterval(() => {
+      refreshDashboard();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [user])
+
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -91,44 +104,16 @@ const ClientDashboard = ({ user, initialTab }) => {
       formData.append('client_id', clientData.id)
       formData.append('doc_type', docType)
 
-      const res = await fetch('http://127.0.0.1:8000/upload', { method: 'POST', body: formData })
+      const res = await fetch(`${API_BASE}/upload`, { 
+        method: 'POST', 
+        body: formData 
+      })
       if (!res.ok) throw new Error(`Server error: ${res.statusText}`)
       const data = await res.json()
 
-      // Upload file to Firebase Storage to get a viewable URL
-      const fileExt = uploadFile.name.split('.').pop()
-      const fbStorageRef = storageRef(storage, `documents/${clientData.id}/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`)
-      await uploadBytes(fbStorageRef, uploadFile)
-      const downloadUrl = await getDownloadURL(fbStorageRef)
-
-      // Save to documents node with client_uid
-      const docRef = push(ref(db, 'documents'))
-      await set(docRef, {
-        client_uid: clientData.id,
-        file_name: `AI_${docType.toUpperCase()}_${data.data?.vendor || uploadFile.name}`,
-        file_url: downloadUrl,
-        mime_type: uploadFile.type,
-        type: docType,
-        status: 'pending',
-        extracted_data: data.data,
-        amount: data.data?.amount || 0,
-        timestamp: new Date().toISOString()
-      })
-
-      // Alert CA
-      if (clientData.assigned_ca_uid) {
-        await push(ref(db, 'alerts'), {
-          target_uid: clientData.assigned_ca_uid,
-          message: `New ${docType} document uploaded by "${clientData.name}". Please review.`,
-          client_name: clientData.name,
-          type: 'info',
-          created_at: new Date().toISOString(),
-          read: false
-        })
-      }
-
       setUploadResult(data)
       setUploadFile(null)
+      refreshDashboard()
     } catch (err) {
       setUploadResult({ error: err.message })
     }
@@ -138,14 +123,18 @@ const ClientDashboard = ({ user, initialTab }) => {
   // Send chat message
   const sendMessage = async () => {
     if (!chatInput.trim() || !clientData) return
-    await push(ref(db, `messages/${clientData.id}`), {
-      text: chatInput,
-      sender_uid: user?.uid,
-      sender_role: 'client',
-      sender_name: 'Client',
-      timestamp: new Date().toISOString()
+    await fetch(`${API_BASE}/send-message`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        client_id: clientData.id,
+        text: chatInput
+      })
     })
     setChatInput('')
+    refreshDashboard()
   }
 
   if (loading) return <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading your portal...</div>
@@ -191,7 +180,43 @@ const ClientDashboard = ({ user, initialTab }) => {
         {/* ========== DASHBOARD TAB ========== */}
         {tab === 'dashboard' && (
           <div>
-            {/* Stats */}
+            {/* Saldo Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+              <div className="card" style={{ background: 'white', borderLeft: '4px solid var(--primary)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', marginBottom: '8px' }}>
+                  <TrendingUp size={14} /> Total Inflow
+                </div>
+                <div style={{ fontSize: '1.6rem', fontWeight: 800 }}>₹{saldo?.total_inflow?.toLocaleString() || '0'}</div>
+              </div>
+              <div className="card" style={{ background: 'white', borderLeft: '4px solid #E68A8A' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', marginBottom: '8px' }}>
+                  <AlertTriangle size={14} /> Total Outflow
+                </div>
+                <div style={{ fontSize: '1.6rem', fontWeight: 800 }}>₹{saldo?.total_outflow?.toLocaleString() || '0'}</div>
+              </div>
+              <div className="card" style={{ background: 'linear-gradient(135deg, var(--primary), var(--primary-deep))', color: 'white' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: 0.8, fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', marginBottom: '8px' }}>
+                  <Wallet size={14} /> Net Balance
+                </div>
+                <div style={{ fontSize: '1.6rem', fontWeight: 800 }}>₹{saldo?.balance?.toLocaleString() || '0'}</div>
+              </div>
+            </div>
+
+            {/* AI Insights Card */}
+            {insight && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                style={{ marginBottom: '30px', padding: '20px', background: 'white', borderRadius: '14px', border: '1px solid var(--card-border)', boxShadow: 'var(--shadow-soft)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                  <Scan size={20} color="var(--primary)" className="animate-pulse" />
+                  <span style={{ fontWeight: 700, color: 'var(--primary-deep)' }}>ARVIK AI — Financial Intelligence</span>
+                </div>
+                <div style={{ fontSize: '0.92rem', lineHeight: '1.6', color: 'var(--text-main)', whiteSpace: 'pre-wrap' }}>
+                  {insight}
+                </div>
+              </motion.div>
+            )}
+
+            {/* Stats Overview */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '30px' }}>
               {[
                 { label: 'Pending', val: pendingDocs, icon: <Clock size={18} />, color: '#B7C06E' },

@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { UploadCloud, CheckCircle, BrainCircuit, Scan, FileText, AlertCircle, FileCheck, X } from 'lucide-react'
-import { db, ref, push, set } from '../firebase'
+import { API_BASE } from '../config'
+import { db, ref, push, set } from '../firebase' // Keeping firebase for now if still needed, but backend is preferred.
 
 export default function AutoDataEntry({ clientData, assignedCA, onComplete }) {
   const [file, setFile] = useState(null)
@@ -23,16 +24,16 @@ export default function AutoDataEntry({ clientData, assignedCA, onComplete }) {
     formData.append("client_id", clientData.id);
     formData.append("doc_type", docType);
 
-    const response = await fetch("http://127.0.0.1:8000/upload", {
+    const res = await fetch(`${API_BASE}/upload`, {
       method: "POST",
       body: formData
     });
     
-    if (!response.ok) {
-      throw new Error(`API error: ${response.statusText}`);
+    if (!res.ok) {
+      throw new Error(`API error: ${res.statusText}`);
     }
     
-    const resData = await response.json();
+    const resData = await res.json();
     return resData.data;
   }
 
@@ -70,17 +71,8 @@ export default function AutoDataEntry({ clientData, assignedCA, onComplete }) {
   }
 
   const handleSubmit = async () => {
-     // Save to DB
-     const docRef = push(ref(db, `clients/${clientData.id}/documents`))
-     await set(docRef, {
-       name: `AI_${docType.toUpperCase()}_${extractedData.vendor || 'Doc'}`,
-       type: docType,
-       status: 'pending_ca_review',
-       extracted_data: extractedData,
-       amount: parseFloat(extractedData.amount || 0),
-       timestamp: new Date().toISOString(),
-       assigned_ca_id: clientData.assigned_ca_id || ''
-     })
+     // SALDO is updated by the backend during /upload
+     // We just transition the UI to the "done" state
      setStep(4)
      setTimeout(() => {
        if (onComplete) onComplete()
