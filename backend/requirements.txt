@@ -5,3 +5,4 @@ pydantic[email]
 email-validator
 requests
 apscheduler
+python-multipart
