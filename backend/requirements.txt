@@ -3,3 +3,5 @@ uvicorn
 sqlalchemy
 pydantic[email]
 email-validator
+requests
+apscheduler
