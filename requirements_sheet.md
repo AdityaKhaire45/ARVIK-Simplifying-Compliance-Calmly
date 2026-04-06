@@ -1,7 +1,7 @@
 # 🚀 Avdhi - Compliance Management System
 
 ### 🏗️ CORE MODULES
-1. **User Management (RBAC)**: Admin, CA, and Client views.
+1. **User Management (RBAC)**: Admin, CA, and Client views.and many all 
 2. **Smart Compliance Engine**: GST (11th/20th), TDS (7th), PF/ESIC (15th).
 3. **Dashboard MIS**: "Smart Pipeline" tracking & "Audit Log" monitoring.
 4. **CA Assignment**: Admin controls CA-Client relationships.
